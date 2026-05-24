@@ -149,7 +149,7 @@ pNumber = -1, x = -1, y = -1.
 
 ## Processing Pipeline
 
-`
+```
 Firebase export (raw JSON)
         |
         v
@@ -163,7 +163,7 @@ scripts/cmuq/visualize_stationary_f*.py  -->  figures/cmuq/
         |
         v
 dashboard.py  (interactive Dash app)
-`
+```
 
 ---
 
