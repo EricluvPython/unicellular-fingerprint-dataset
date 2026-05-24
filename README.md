@@ -3,8 +3,8 @@
 > **Cellular radio-frequency fingerprint dataset** collected across multiple indoor environments in Qatar.  
 > Each site is covered in two modes: **stationary** (fixed reference points, multiple phones, repeated scans) and **mobile** (continuous free-walk sessions, no fixed reference points).
 
-[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%%20BY%%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
-[![Git LFS](https://img.shields.io/badge/Git%%20LFS-tracked-blue)](https://git-lfs.github.com/)
+[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![Git LFS](https://img.shields.io/badge/Git%20LFS-tracked-blue)](https://git-lfs.github.com/)
 
 ---
 
@@ -130,18 +130,17 @@ Processing scripts replace these with empty strings so pandas reads them as NaN.
 
 ### Stationary Mode
 
-1. **Floor plan preparation** - Convert the PDF floor plan to PNG (ssign_coordinates_f*.py, Phase 1).
+1. **Floor plan preparation** - Convert the PDF floor plan to PNG (`assign_coordinates_f*.py`, Phase 1).
 2. **Circle detection** - OpenCV detects red RP markers automatically; result cached in coordinates/cmuq/detected_circles_f*.json.
 3. **RP assignment** - Researcher clicks each detected circle in RP order (1 to N) in an interactive matplotlib window; saves coordinates/cmuq/floor*.json.
 4. **Data collection** - 7 smartphones placed at each RP simultaneously. 300 cellular scans per (RP, phone) pair collected via the UniCellular Android app and exported from Firebase Realtime Database.
 5. **Processing** - process_stationary_f*.py parses the raw JSON, merges pixel coordinates, masks sentinel values, and writes data/cmuq/stationary/floor*.csv.
-6. **Visualisation** - isualize_stationary_f*.py generates a 6-panel static overview figure.
+6. **Visualisation** - `visualize_stationary_f*.py` generates a 6-panel static overview figure.
 
 ### Mobile Mode
 
 1. A single researcher walks the entire floor continuously for approximately 1 hour.
-2. No reference points are marked - position is not recorded. All rows have 
-pNumber = -1, x = -1, y = -1.
+2. No reference points are marked - position is not recorded. All rows have `rpNumber = -1`, `x = -1`, `y = -1`.
 3. The raw Firebase export is processed by process_mobile_f*.py, producing a CSV with the same 24-column schema.
 4. Mobile data is intended for training/evaluating models that do not require labelled reference points (e.g. unsupervised or self-supervised localisation).
 
@@ -169,8 +168,7 @@ dashboard.py  (interactive Dash app)
 
 ## Interactive Dashboard
 
-Requires Python >= 3.10 and the packages in 
-equirements.txt.
+Requires Python >= 3.10 and the packages in `requirements.txt`.
 
 ```bash
 pip install -r requirements.txt
