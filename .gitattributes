@@ -1,0 +1,2 @@
+# Data files tracked by Git LFS
+*.csv filter=lfs diff=lfs merge=lfs -text

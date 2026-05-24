@@ -1,0 +1,26 @@
+# Raw export files (not distributed)
+raw/
+!raw/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Intermediate detection outputs
+floor_plans/detected_circles_f*.png
+coordinates/detected_circles_f*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
