@@ -1,10 +1,11 @@
 """
-CMUQ Stationary Dataset – Combined Interactive Dashboard (Floor 1 & 2)
-Run:  python dashboard_cmuq.py
+CMUQ Stationary Dataset – Combined Interactive Dashboard
+Run:  python dashboard.py
 Open: http://127.0.0.1:8050
 
 Floor selector in the header switches all tabs to the chosen floor.
 A "Compare" tab shows side-by-side floor comparisons (available once both CSVs exist).
+Floor 3 is a placeholder – the CSV will appear once collection is complete.
 
 Tabs: Overview · Floor Map · Signal Metrics · Temporal · Transmitters · Field Explorer · Compare
 """
@@ -26,8 +27,9 @@ import plotly.express as px
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 FLOOR_CONFIG = {
-    1: dict(csv=os.path.join("data", "cmuq_stationary_7phone_f1.csv"), img=os.path.join("floor_plans", "FF-Generic.png"),  label="Floor 1"),
-    2: dict(csv=os.path.join("data", "cmuq_stationary_7phone_f2.csv"), img=os.path.join("floor_plans", "SF-Generic.png"),  label="Floor 2"),
+    1: dict(csv=os.path.join("data", "cmuq", "stationary", "floor1.csv"), img=os.path.join("floor_plans", "cmuq", "floor1.png"),  label="Floor 1"),
+    2: dict(csv=os.path.join("data", "cmuq", "stationary", "floor2.csv"), img=os.path.join("floor_plans", "cmuq", "floor2.png"),  label="Floor 2"),
+    3: dict(csv=os.path.join("data", "cmuq", "stationary", "floor3.csv"), img=os.path.join("floor_plans", "cmuq", "floor3.png"),  label="Floor 3 (TBD)"),
 }
 
 SENTINEL = 1e8

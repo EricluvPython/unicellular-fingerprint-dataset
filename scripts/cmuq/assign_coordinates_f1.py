@@ -35,12 +35,12 @@ matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
 # ── paths ──────────────────────────────────────────────────────────────────
-ROOT            = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 PDF_PATH        = os.path.join(ROOT, "raw", "FF-Generic(2).pdf")
-PNG_PATH        = os.path.join(ROOT, "floor_plans", "FF-Generic.png")
-COORD_PATH      = os.path.join(ROOT, "coordinates", "coordinates_f1.json")
-CIRCLES_JSON    = os.path.join(ROOT, "coordinates", "detected_circles_f1.json")
-CIRCLES_PREVIEW = os.path.join(ROOT, "floor_plans", "detected_circles_f1.png")
+PNG_PATH        = os.path.join(ROOT, "floor_plans", "cmuq", "floor1.png")
+COORD_PATH      = os.path.join(ROOT, "coordinates", "cmuq", "floor1.json")
+CIRCLES_JSON    = os.path.join(ROOT, "coordinates", "cmuq", "detected_circles_f1.json")
+CIRCLES_PREVIEW = os.path.join(ROOT, "floor_plans", "cmuq", "detected_circles_f1.png")
 
 TOTAL_RPS = 84
 

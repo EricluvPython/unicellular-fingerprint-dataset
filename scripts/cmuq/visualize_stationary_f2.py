@@ -10,10 +10,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
-ROOT     = os.path.dirname(os.path.abspath(__file__))
-CSV_PATH = os.path.join(ROOT, "data", "cmuq_stationary_7phone_f2.csv")
-IMG_PATH = os.path.join(ROOT, "floor_plans", "SF-Generic.png")
-OUT_PATH = os.path.join(ROOT, "figures", "cmuq_f2_stationary_overview.png")
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+CSV_PATH = os.path.join(ROOT, "data", "cmuq", "stationary", "floor2.csv")
+IMG_PATH = os.path.join(ROOT, "floor_plans", "cmuq", "floor2.png")
+OUT_PATH = os.path.join(ROOT, "figures", "cmuq", "stationary_floor2_overview.png")
 
 PHONE_COLORS = {
     "25028RN03A":   "#e41a1c",

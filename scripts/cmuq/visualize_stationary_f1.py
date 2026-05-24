@@ -12,10 +12,10 @@ import matplotlib.colors as mcolors
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-ROOT     = os.path.dirname(os.path.abspath(__file__))
-CSV_PATH = os.path.join(ROOT, "data", "cmuq_stationary_7phone_f1.csv")
-IMG_PATH = os.path.join(ROOT, "floor_plans", "FF-Generic.png")
-OUT_PATH = os.path.join(ROOT, "figures", "cmuq_f1_stationary_overview.png")
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+CSV_PATH = os.path.join(ROOT, "data", "cmuq", "stationary", "floor1.csv")
+IMG_PATH = os.path.join(ROOT, "floor_plans", "cmuq", "floor1.png")
+OUT_PATH = os.path.join(ROOT, "figures", "cmuq", "stationary_floor1_overview.png")
 
 PHONE_COLORS = {
     "25028RN03A":   "#e41a1c",

@@ -1,274 +1,220 @@
-# UniCellular Fingerprint Dataset – CMUQ Campus
+# UniCellular Fingerprint Dataset
 
-> **Cellular radio-frequency fingerprint dataset** collected at Carnegie Mellon University in Qatar (CMUQ), covering two floors with 84 reference points each, 7 smartphones, and 300 scans per reference point per phone.
+> **Cellular radio-frequency fingerprint dataset** collected across multiple indoor environments in Qatar.
+> Each site is covered in two modes – **stationary** (fixed reference points, multiple phones, repeated scans) and **mobile** (continuous free-walk sessions, no fixed reference points).
+
+[![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
+[![Git LFS](https://img.shields.io/badge/Git%20LFS-tracked-blue)](https://git-lfs.github.com/)
 
 ---
 
 ## Table of Contents
 
-1. [Dataset Overview](#dataset-overview)
-2. [Collection Environment](#collection-environment)
-3. [Devices & Protocol](#devices--protocol)
-4. [Dataset Structure](#dataset-structure)
-5. [CSV Schema](#csv-schema)
-6. [Processing Pipeline](#processing-pipeline)
-7. [Visualisation & Dashboard](#visualisation--dashboard)
-8. [Installation](#installation)
-9. [Citation](#citation)
+1. [Sites and Status](#sites-and-status)
+2. [Directory Structure](#directory-structure)
+3. [Data Schema](#data-schema)
+4. [Collection Protocol](#collection-protocol)
+5. [Processing Pipeline](#processing-pipeline)
+6. [Interactive Dashboard](#interactive-dashboard)
+7. [Accessing the CSVs (Git LFS)](#accessing-the-csvs-git-lfs)
+8. [Citation](#citation)
 
 ---
 
-## Dataset Overview
+## Sites and Status
 
-| Property | Value |
-|---|---|
-| Site | Carnegie Mellon University in Qatar (CMUQ) – Building 5 |
-| Floors | Floor 1 (First Floor) · Floor 2 (Second Floor) |
-| Reference points (RPs) per floor | 84 |
-| Phones | 7 (6 unique handsets; one device ID appeared twice → renamed with `-2` suffix) |
-| Scans per RP per phone | 300 |
-| Total rows – Floor 1 | 734,511 |
-| Total rows – Floor 2 | 833,809 |
-| Radio technologies | GSM · LTE · WCDMA · NR |
-| Operator | Ooredoo Qatar |
-| Device height | 1.2 m |
-
-Each row corresponds to **one transmitter observed during one scan at one reference point by one phone**.
+| Site | Location | Floors / Areas | Stationary | Mobile |
+|------|----------|----------------|------------|--------|
+| **CMUQ** | Carnegie Mellon Univ. in Qatar | Floors 1, 2, 3 | F1 done  F2 done  F3 planned | planned |
+| **Ezdan Tower** | Doha | Towers 1-4 | planned | planned |
+| **Msheireb Parking** | Msheireb Downtown Doha | Parking lot | planned | planned |
+| **EC Parking** | Education City | Parking lot | planned | planned |
 
 ---
 
-## Collection Environment
+## Directory Structure
 
-```
-Building 5, CMUQ (Education City, Doha, Qatar)
-├── Floor 1  –  floor plan: floor_plans/FF-Generic.png
-│              84 RPs arranged along corridors and rooms
-└── Floor 2  –  floor plan: floor_plans/SF-Generic.png
-               84 RPs with equivalent spatial coverage
-```
-
-Reference points were marked on printed floor plans and identified by a red-circle marker.  
-Pixel coordinates of each RP were manually mapped from a PDF floor plan using `assign_coordinates_f*.py`.
-
----
-
-## Devices & Protocol
-
-| Phone ID | Model |
-|---|---|
-| 25028RN03A | Redmi Note (device A) |
-| 25028RN03A-2 | Redmi Note (device B — same hardware ID, renamed) |
-| CPH2743 | OPPO |
-| HED-LX9 | Huawei |
-| RMX3938 | Realme |
-| SM-A176B | Samsung Galaxy A17 |
-| itel A675L | itel A675L |
-
-**Collection procedure:**
-1. Surveyor stands at the marked RP holding the phone at 1.2 m height.
-2. The collection app (Firebase Realtime Database) records 300 consecutive scans.
-3. Each scan captures all visible cellular transmitters (serving cell + neighbours).
-4. All 7 phones collected simultaneously, sweeping through all 84 RPs per floor.
-
-> **Note on duplicate phone ID:** Two physical devices reported the same Android device ID `25028RN03A`.  
-> During processing, entries are grouped by `(rpNumber, scanNumber)` and the later timestamp is renamed `25028RN03A-2`.
-
----
-
-## Dataset Structure
-
-```
+`
 unicellular-fingerprint-dataset/
-├── data/
-│   ├── cmuq_stationary_7phone_f1.csv   ← Floor 1 processed data (Git LFS, ~128 MB)
-│   └── cmuq_stationary_7phone_f2.csv   ← Floor 2 processed data (Git LFS, ~145 MB)
-├── floor_plans/
-│   ├── FF-Generic.png                  ← Floor 1 plan (rasterised from PDF)
-│   └── SF-Generic.png                  ← Floor 2 plan (rasterised from PDF)
-├── coordinates/
-│   ├── coordinates_f1.json             ← RP number → [pixel_x, pixel_y], Floor 1
-│   └── coordinates_f2.json             ← RP number → [pixel_x, pixel_y], Floor 2
-├── figures/
-│   └── cmuq_f1_stationary_overview.png ← 6-panel overview figure
-├── raw/                                ← gitignored; place raw export files here
-│   └── .gitkeep
-├── assign_coordinates_f1.py            ← OpenCV circle detection + click-to-assign UI
-├── assign_coordinates_f2.py
-├── process_cmuq_f1_stationary.py       ← Raw JSON → flat CSV
-├── process_cmuq_f2_stationary.py
-├── visualize_cmuq_f1_stationary.py     ← 6-panel matplotlib overview
-├── visualize_cmuq_f2_stationary.py
-├── dashboard_cmuq.py                   ← Interactive Plotly/Dash dashboard
-└── requirements.txt
-```
-
-### Downloading the large CSVs (Git LFS)
-
-This repository uses **Git LFS** to store the two large CSV files.  
-After cloning, run:
-
-```bash
-git lfs pull
-```
-
-If you do not have Git LFS installed:
-
-```bash
-# macOS
-brew install git-lfs
-
-# Ubuntu / Debian
-sudo apt install git-lfs
-
-# Windows (Chocolatey)
-choco install git-lfs
-
-# then initialise once
-git lfs install
-```
+|-- README.md
+|-- .gitattributes          # *.csv tracked by Git LFS
+|-- .gitignore
+|-- requirements.txt
+|-- dashboard.py            # interactive Dash app (CMUQ stationary)
+|
+|-- data/                   # processed CSVs (large files via Git LFS)
+|   |-- cmuq/
+|   |   |-- stationary/
+|   |   |   |-- floor1.csv  (~128 MB)
+|   |   |   |-- floor2.csv  (~145 MB)
+|   |   |   -- floor3.csv  (planned)
+|   |   -- mobile/
+|   |       |-- floor1.csv  (planned)
+|   |       |-- floor2.csv  (planned)
+|   |       -- floor3.csv  (planned)
+|   |-- ezdan/tower{1..4}/  (planned)
+|   |-- msheireb_parking/   (planned)
+|   -- ec_parking/         (planned)
+|
+|-- floor_plans/            # rasterised floor plan PNGs
+|   -- cmuq/
+|       |-- floor1.png
+|       -- floor2.png
+|
+|-- coordinates/            # RP pixel coordinates (JSON)
+|   -- cmuq/
+|       |-- floor1.json
+|       -- floor2.json
+|
+|-- figures/                # publication-ready overview figures
+|   -- cmuq/
+|       -- stationary_floor1_overview.png
+|
+|-- scripts/
+|   -- cmuq/
+|       |-- assign_coordinates_f1.py   # interactive RP click tool
+|       |-- assign_coordinates_f2.py
+|       |-- assign_coordinates_f3.py   # skeleton
+|       |-- process_stationary_f1.py   # JSON -> CSV
+|       |-- process_stationary_f2.py
+|       |-- process_stationary_f3.py   # skeleton
+|       |-- visualize_stationary_f1.py
+|       |-- visualize_stationary_f2.py
+|       |-- visualize_stationary_f3.py # skeleton
+|       |-- process_mobile_f1.py       # skeleton
+|       |-- process_mobile_f2.py       # skeleton
+|       -- process_mobile_f3.py       # skeleton
+|
+-- raw/                    # NOT in repo - place raw Firebase exports here
+    -- .gitkeep
+`
 
 ---
 
-## CSV Schema
+## Data Schema
 
-Both floor CSVs share the same 24-column schema:
+Every processed CSV (stationary and mobile) shares the same 24-column schema:
 
 | Column | Type | Description |
-|---|---|---|
-| `entry_id` | str | Firebase entry key |
-| `buildingNumber` | int | Building identifier (5 = CMUQ Building 5) |
-| `entryDate` | str | Date of collection (YYYY-MM-DD) |
-| `floorNumber` | int | 1 or 2 |
-| `rpNumber` | int | Reference point number (1–84) |
-| `x` | int | Pixel x-coordinate on floor plan image |
-| `y` | int | Pixel y-coordinate on floor plan image |
-| `batteryPower` | float | Phone battery level (%) at scan time |
-| `deviceHeight` | float | Measurement height (1.2 m) |
-| `hoFlag` | bool | Handover flag (False = stationary) |
-| `infrastructureType` | str | Always `"Cellular Ooredoo"` |
-| `phoneName` | str | Device identifier (see Devices table) |
-| `scanDate` | str | Timestamp string of the scan |
-| `scanNumber` | int | Scan index (1–300) per RP per phone |
-| `servingCellId` | int | ID of the serving (strongest) cell |
-| `timeStamp` | int | Unix millisecond timestamp |
-| `transmitter_asu` | int | Arbitrary Strength Unit |
-| `transmitter_id` | int | Transmitter / cell identifier |
-| `transmitter_level` | int | Signal level bucket (0–4) |
-| `transmitter_rsrq` | float | Reference Signal Received Quality (dB) |
-| `transmitter_rss` | float | Received Signal Strength (dBm) |
-| `transmitter_rssi` | float | RSSI (dBm); `NaN` for GSM (no RSSI reported) |
-| `transmitter_snr` | float | Signal-to-Noise Ratio (dB); `NaN` for GSM |
-| `transmitter_type` | str | `GSM` · `LTE` · `WCDMA` · `NR` |
+|--------|------|-------------|
+| entry_id | str | Firebase document key |
+| uildingNumber | int | Building ID (5 = CMUQ) |
+| entryDate | str | ISO date of the session |
+| loorNumber | int | Floor number |
+| 
+pNumber | int | Reference point index (-1 in mobile mode) |
+| x, y | int | Pixel coordinates on floor plan (-1 in mobile mode) |
+| atteryPower | float | Device battery % at scan time |
+| deviceHeight | float | Holding height in metres |
+| hoFlag | bool | Handover flag |
+| infrastructureType | str | Network operator / RAT description |
+| phoneName | str | Device identifier |
+| scanDate | str | ISO timestamp of the scan |
+| scanNumber | int | Scan index within the session |
+| servingCellId | int | Transmitter ID of the serving cell |
+| 	imeStamp | int | Unix millisecond timestamp |
+| 	ransmitter_asu | int | Arbitrary Strength Unit |
+| 	ransmitter_id | int | Unique transmitter (cell) identifier |
+| 	ransmitter_level | int | Android signal level (0-4) |
+| 	ransmitter_rsrq | float | Reference Signal Received Quality (dB) |
+| 	ransmitter_rss | float | Received Signal Strength (dBm) |
+| 	ransmitter_rssi | float | RSSI (dBm); blank where raw = INT_MAX sentinel |
+| 	ransmitter_snr | float | SNR (dB); blank where raw = INT_MAX sentinel |
+| 	ransmitter_type | str | Network type string (e.g. LTE, NR) |
 
-> **Sentinel values:** The raw export uses `2,147,483,647` (Java `Integer.MAX_VALUE`) to indicate "not available" for `transmitter_rssi` and `transmitter_snr` on GSM cells. The processing scripts replace these with `NaN`.
+**Sentinel masking**: The Android API returns Integer.MAX_VALUE (2,147,483,647) when a metric is unavailable. Processing scripts replace these with empty strings so pandas reads them as NaN.
+
+---
+
+## Collection Protocol
+
+### Stationary Mode
+
+1. **Floor plan preparation** - Convert the PDF floor plan to PNG (assign_coordinates_f*.py, Phase 1).
+2. **Circle detection** - OpenCV detects red RP markers automatically; result cached in coordinates/cmuq/detected_circles_f*.json.
+3. **RP assignment** - Researcher clicks each detected circle in RP order (1 to N) in an interactive matplotlib window; saves coordinates/cmuq/floor*.json.
+4. **Data collection** - 7 smartphones placed at each RP simultaneously. 300 cellular scans per (RP, phone) pair collected via the UniCellular Android app and exported from Firebase Realtime Database.
+5. **Processing** - process_stationary_f*.py parses the raw JSON, merges pixel coordinates, masks sentinel values, and writes data/cmuq/stationary/floor*.csv.
+6. **Visualisation** - visualize_stationary_f*.py generates a 6-panel static overview figure.
+
+### Mobile Mode
+
+1. A single researcher walks the entire floor continuously for approximately 1 hour.
+2. No reference points are marked - position is not recorded. All rows in mobile CSVs have rpNumber = -1, x = -1, y = -1.
+3. The raw Firebase export is processed by process_mobile_f*.py, producing a CSV with the same 24-column schema as the stationary files.
+4. Mobile data is intended for training/evaluating models that do not require labelled reference points (e.g. unsupervised or self-supervised localisation).
 
 ---
 
 ## Processing Pipeline
 
-Run these steps **once per floor** to regenerate the CSVs from the raw Firebase export:
-
-```
-raw JSON export
-      │
-      ▼
-assign_coordinates_fX.py   ← OpenCV red-circle detection on floor plan PDF
-      │                        outputs coordinates/coordinates_fX.json
-      ▼
-process_cmuq_fX_stationary.py  ← Flattens nested JSON, merges coordinates,
-      │                           splits duplicate phone IDs
-      ▼
-data/cmuq_stationary_7phone_fX.csv
-```
-
-### Step 1 – Map reference point coordinates
-
-Place the original PDF floor plans in `raw/`:
-- `raw/FF-Generic(2).pdf` (Floor 1)
-- `raw/SF-Generic(2).pdf` (Floor 2)
-
-```bash
-python assign_coordinates_f1.py   # interactive click UI, saves coordinates/coordinates_f1.json
-python assign_coordinates_f2.py
-```
-
-**Interactive UI controls:**  
-Click the red dot nearest to each RP in ascending order (1 → 84).  
-`u` = undo last assignment · `s` = save & continue · `q` = quit
-
-### Step 2 – Generate CSV
-
-Place the raw Firebase JSON exports in `raw/`:
-- `raw/cmuq_stationary_7phone_f1_raw.json`
-- `raw/fingerprints_floor2.json`
-
-```bash
-python process_cmuq_f1_stationary.py   # → data/cmuq_stationary_7phone_f1.csv
-python process_cmuq_f2_stationary.py   # → data/cmuq_stationary_7phone_f2.csv
-```
+`
+Firebase export (raw JSON)
+        |
+        v
+scripts/cmuq/process_stationary_f*.py  <--  coordinates/cmuq/floor*.json
+        |
+        v
+data/cmuq/stationary/floor*.csv  (Git LFS)
+        |
+        v
+scripts/cmuq/visualize_stationary_f*.py  -->  figures/cmuq/
+        |
+        v
+dashboard.py  (interactive Dash app)
+`
 
 ---
 
-## Visualisation & Dashboard
+## Interactive Dashboard
 
-### Static overview figures
+Requires Python >= 3.10 and the packages in requirements.txt.
 
-```bash
-python visualize_cmuq_f1_stationary.py   # → figures/cmuq_f1_stationary_overview.png
-python visualize_cmuq_f2_stationary.py   # → figures/cmuq_f2_stationary_overview.png
-```
-
-Each figure has 6 panels: RP map · RSS heatmap · RSS boxplot · unique-TX bar · type breakdown · SNR violin.
-
-### Interactive Dash dashboard
-
-```bash
-python dashboard_cmuq.py
-# Open http://127.0.0.1:8050
-```
-
-**Tabs:**  
-`Overview` · `Floor Map` · `Signal Metrics` · `Temporal` · `Transmitters` · `Field Explorer` · `Compare Floors`
-
-A **floor selector** in the header switches all tabs between Floor 1 and Floor 2.  
-The **Compare Floors** tab is unlocked once both CSVs are loaded.
-
----
-
-## Installation
-
-```bash
-# Clone (requires Git LFS)
-git clone https://github.com/EricluvPython/unicellular-fingerprint-dataset.git
-cd unicellular-fingerprint-dataset
-git lfs pull
-
-# Install Python dependencies (Python 3.9+)
+`ash
 pip install -r requirements.txt
-```
+python dashboard.py
+# Open http://127.0.0.1:8050
+`
 
-### Processing-only dependencies
+The dashboard shows all floors for which a CSV is present. Floor 3 will appear automatically once data/cmuq/stationary/floor3.csv is added.
 
-`assign_coordinates_f*.py` additionally requires:
-```bash
-pip install pymupdf opencv-python
-```
+---
+
+## Accessing the CSVs (Git LFS)
+
+The processed CSVs are stored via Git LFS (https://git-lfs.github.com/). You must have Git LFS installed before cloning:
+
+`ash
+git lfs install
+git clone https://github.com/EricluvPython/unicellular-fingerprint-dataset.git
+`
+
+If you cloned without LFS, fetch the binary files:
+
+`ash
+git lfs pull
+`
+
+Alternatively, download individual CSVs directly from the GitHub web UI (click the file, then Download raw file).
 
 ---
 
 ## Citation
 
-> *Paper in preparation.*  
-> If you use this dataset, please cite:
->
-> ```bibtex
-> @dataset{unicellular_cmuq_2026,
->   title   = {UniCellular Fingerprint Dataset – CMUQ Campus},
->   year    = {2026},
->   url     = {https://github.com/EricluvPython/unicellular-fingerprint-dataset},
-> }
-> ```
+If you use this dataset in your research, please cite:
+
+`
+@misc{unicellular2025,
+  title  = {UniCellular Fingerprint Dataset},
+  author = {[Authors TBD]},
+  year   = {2025},
+  url    = {https://github.com/EricluvPython/unicellular-fingerprint-dataset},
+}
+`
 
 ---
 
-*Dataset collected at Carnegie Mellon University in Qatar.*
+## License
+
+Data and code are released under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+You are free to share and adapt the material for any purpose, provided appropriate credit is given.

@@ -20,10 +20,10 @@ import csv
 import os
 
 # ── paths ──────────────────────────────────────────────────────────────────
-ROOT        = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 JSON_PATH   = os.path.join(ROOT, "raw", "cmuq_stationary_7phone_f1_raw.json")
-COORD_PATH  = os.path.join(ROOT, "coordinates", "coordinates_f1.json")
-OUTPUT_CSV  = os.path.join(ROOT, "data", "cmuq_stationary_7phone_f1.csv")
+COORD_PATH  = os.path.join(ROOT, "coordinates", "cmuq", "floor1.json")
+OUTPUT_CSV  = os.path.join(ROOT, "data", "cmuq", "stationary", "floor1.csv")
 
 FIELDNAMES = [
     "entry_id", "buildingNumber", "entryDate", "floorNumber", "rpNumber",

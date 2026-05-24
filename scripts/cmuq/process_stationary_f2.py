@@ -24,10 +24,10 @@ Usage:
 import json, csv, os
 from collections import defaultdict
 
-ROOT       = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 JSON_PATH  = os.path.join(ROOT, "raw", "fingerprints_floor2.json")
-COORD_PATH = os.path.join(ROOT, "coordinates", "coordinates_f2.json")
-OUT_CSV    = os.path.join(ROOT, "data", "cmuq_stationary_7phone_f2.csv")
+COORD_PATH = os.path.join(ROOT, "coordinates", "cmuq", "floor2.json")
+OUT_CSV    = os.path.join(ROOT, "data", "cmuq", "stationary", "floor2.csv")
 
 FIELDNAMES = [
     "entry_id", "buildingNumber", "entryDate", "floorNumber", "rpNumber",
