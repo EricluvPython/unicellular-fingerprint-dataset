@@ -34,7 +34,7 @@
 
 ## Directory Structure
 
-`
+```
 unicellular-fingerprint-dataset/
 |-- README.md
 |-- .gitattributes          # *.csv tracked by Git LFS
@@ -87,7 +87,7 @@ unicellular-fingerprint-dataset/
 |
 \-- raw/                   # NOT in repo - place raw Firebase exports here
     \-- .gitkeep
-`
+```
 
 ---
 
@@ -172,11 +172,11 @@ dashboard.py  (interactive Dash app)
 Requires Python >= 3.10 and the packages in 
 equirements.txt.
 
-`ash
+```bash
 pip install -r requirements.txt
 python dashboard.py
 # Open http://127.0.0.1:8050
-`
+```
 
 The dashboard shows all floors for which a CSV is present.
 Floor 3 will appear automatically once data/cmuq/stationary/floor3.csv is added.
@@ -188,16 +188,16 @@ Floor 3 will appear automatically once data/cmuq/stationary/floor3.csv is added.
 The processed CSVs are stored via [Git LFS](https://git-lfs.github.com/).
 You must have Git LFS installed before cloning:
 
-`ash
+```bash
 git lfs install
 git clone https://github.com/EricluvPython/unicellular-fingerprint-dataset.git
-`
+```
 
 If you cloned without LFS, fetch the binary files:
 
-`ash
+```bash
 git lfs pull
-`
+```
 
 Alternatively, download individual CSVs directly from the GitHub web UI
 (click the file, then **Download raw file**).
@@ -208,14 +208,14 @@ Alternatively, download individual CSVs directly from the GitHub web UI
 
 If you use this dataset in your research, please cite:
 
-`
-@misc{unicellular2025,
+```
+@misc{unicellulardata2026,
   title  = {UniCellular Fingerprint Dataset},
   author = {[Authors TBD]},
-  year   = {2025},
+  year   = {2026},
   url    = {https://github.com/EricluvPython/unicellular-fingerprint-dataset},
 }
-`
+```
 
 ---
 
