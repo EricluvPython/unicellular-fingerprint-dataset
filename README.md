@@ -25,7 +25,7 @@
 
 | Site | Location | Floors / Areas | Stationary | Mobile |
 |------|----------|----------------|------------|--------|
-| **CMUQ** | Carnegie Mellon Univ. in Qatar | Floors 1, 2, 3 | F1 done, F2 done, F3 planned | planned |
+| **CMUQ** | Carnegie Mellon Univ. in Qatar | Floors 1, 2, 3 | F1 done, F2 done, F3 done | planned |
 | **Ezdan Tower** | Doha | Towers 1-4 | planned | planned |
 | **Msheireb Parking** | Msheireb Downtown Doha | Parking lot | planned | planned |
 | **EC Parking** | Education City | Parking lot | planned | planned |
@@ -47,7 +47,7 @@ unicellular-fingerprint-dataset/
 |   |   |-- stationary/
 |   |   |   |-- floor1.csv  (~128 MB)
 |   |   |   |-- floor2.csv  (~145 MB)
-|   |   |   \-- floor3.csv  (planned)
+|   |   |   \-- floor3.csv  (~145 MB)
 |   |   \-- mobile/
 |   |       |-- floor1.csv  (planned)
 |   |       |-- floor2.csv  (planned)
@@ -177,7 +177,6 @@ python dashboard.py
 ```
 
 The dashboard shows all floors for which a CSV is present.
-Floor 3 will appear automatically once data/cmuq/stationary/floor3.csv is added.
 
 ---
 

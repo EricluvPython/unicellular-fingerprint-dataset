@@ -56,8 +56,8 @@ def main():
     with open(JSON_PATH, encoding="utf-8") as f:
         data = json.load(f)
 
-    # TODO: If floor 3 uses a nested structure (like floor 1), unwrap it:
-    #   data = data.get("Fingerprints", data)
+    # Floor 3 uses a flat dict (no Fingerprints wrapper), same format as floor 2.
+    # Transmitter list key changed to 'transmitterInfoList' in the updated app version.
 
     rows = []
     for entry_id, entry in data.items():
@@ -66,7 +66,7 @@ def main():
         xy   = coords.get(rp, [-1, -1])
 
         phone = scan.get("phoneName", "").strip()
-        for tx in scan.get("transmitters", []):
+        for tx in scan.get("transmitterInfoList", scan.get("transmitters", [])):
             rssi = int(tx.get("rssi", SENTINEL))
             snr  = int(tx.get("snr",  SENTINEL))
             rows.append({
