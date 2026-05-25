@@ -1173,8 +1173,15 @@ def update_mobile(floor):
     fig_bar.update_xaxes(tickangle=-30)
     fig_bar.update_layout(height=320, margin=dict(t=40, b=70))
 
+    side_note = dbc.Alert(
+        [html.Strong("Side labels: "),
+         "top = north corridor (straight wall) · bottom = south corridor (curved wall)"],
+        color="info", className="py-2 mb-3",
+    )
+
     return html.Div([
         kpis,
+        side_note,
         dbc.Row([
             dbc.Col(card("RSS Distribution by Side",  dcc.Graph(figure=fig_side_v)),  md=6),
             dbc.Col(card("RSS Distribution by Phone", dcc.Graph(figure=fig_phone_v)), md=6),
