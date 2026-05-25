@@ -169,9 +169,16 @@ default_floor = available_floors[0]
 print("Pre-processing done.\n")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 3-D floor alignment  (anchor RPs 20-23 are co-located across all floors)
+# 3-D floor alignment – each row maps floor → RP number at the same physical location
 # ═══════════════════════════════════════════════════════════════════════════
-_ANCHOR_RPS = [20, 21, 22, 23]
+_ANCHOR_PAIRS = [
+    {1: 20, 2: 20, 3: 20},
+    {1: 23, 2: 23, 3: 23},
+    {1:  8, 2:  8, 3:  8},
+    {1: 55, 2: 55, 3: 35},
+    {1: 69, 2: 68, 3: 49},
+    {1: 77, 2: 76, 3: 57},
+]
 _COORDS_DIR  = os.path.join(ROOT, "coordinates", "cmuq")
 _Z_SPACING   = 450          # pixel-units between floor levels
 _IMG_H       = FLOORS[available_floors[0]]["img_h"]   # 1169
@@ -203,8 +210,13 @@ _ref_coords = _load_coords(1)
 FLOOR_AFFINE = {}
 for _f in available_floors:
     _src = _load_coords(_f)
-    _sp  = [_src[r]        for r in _ANCHOR_RPS if r in _src and r in _ref_coords]
-    _dp  = [_ref_coords[r] for r in _ANCHOR_RPS if r in _src and r in _ref_coords]
+    _sp, _dp = [], []
+    for _pair in _ANCHOR_PAIRS:
+        _rp_src = _pair.get(_f)
+        _rp_dst = _pair.get(1)
+        if _rp_src and _rp_dst and _rp_src in _src and _rp_dst in _ref_coords:
+            _sp.append(_src[_rp_src])
+            _dp.append(_ref_coords[_rp_dst])
     FLOOR_AFFINE[_f] = _affine_fit(_sp, _dp) if len(_sp) >= 3 else np.eye(2, 3)
 print("Affine alignment computed for floors:", list(FLOOR_AFFINE.keys()))
 
@@ -892,10 +904,13 @@ def update_3d(metric_col, pt_size, opts):
 
     # ── Anchor vertical lines ─────────────────────────────────────────────
     if "anchors" in opts:
-        for i, rp in enumerate(_ANCHOR_RPS):
+        for i, pair in enumerate(_ANCHOR_PAIRS):
             xs_a, ys_a, zs_a = [], [], []
             for f in available_floors:
                 if f not in fdata:
+                    continue
+                rp = pair.get(f)
+                if rp is None:
                     continue
                 row = fdata[f][fdata[f]["rpNumber"] == rp]
                 if row.empty:
@@ -905,11 +920,12 @@ def update_3d(metric_col, pt_size, opts):
                 zs_a.append(float(row["z3d"].iloc[0]))
             if len(xs_a) < 2:
                 continue
+            rp_label = "/".join(str(pair.get(f, "?")) for f in available_floors)
             traces.append(go.Scatter3d(
                 x=xs_a, y=ys_a, z=zs_a,
                 mode="lines",
                 line=dict(color="gold", width=4, dash="dot"),
-                name="Anchor RPs" if i == 0 else f"RP {rp}",
+                name="Anchor RPs" if i == 0 else f"RP {rp_label}",
                 showlegend=(i == 0),
                 hoverinfo="skip",
             ))
