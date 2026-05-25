@@ -9,6 +9,8 @@ Key processing steps:
       time gap – entries before gap = 'top', entries after = 'bottom'
   - x, y remain -1 (mobile collection, no fixed reference points)
   - No duplicate-phone resolution needed (25028RN03A-2 already split in source)
+  - scanNumber: rolls back to 0 every ~1000 points in the app; reconstructed as
+    a monotonic sequence per phone by accumulating an offset at each rollover
 
 Output schema (25 columns = stationary 24 + 'side'):
     entry_id, buildingNumber, entryDate, floorNumber, rpNumber, x, y, side,
@@ -105,6 +107,16 @@ def process_floor(floor_num, all_data):
     print(f"  Floor {floor_num}: {len(entries)} entries → "
           f"top={top_count}, bottom={bot_count}")
 
+    # Reconstruct monotonic scan numbers: the app resets to 1 every ~1000 scans,
+    # but some phones also reset mid-cycle.  The safest fix is to ignore the
+    # original scanNumber and assign a 1-based sequential index per (phone, floor)
+    # based on the time-sorted order of entries.
+    corrected_scan = {}  # entry_id → corrected (monotonic) scan number
+    for phone, group in phone_groups.items():
+        # group is already sorted by timeStamp from the side-assignment step
+        for idx, e in enumerate(group, start=1):
+            corrected_scan[e["_eid"]] = idx
+
     # Expand transmitterInfoList into one row per transmitter
     rows = []
     for eid, entry in entries.items():
@@ -129,7 +141,7 @@ def process_floor(floor_num, all_data):
                 "infrastructureType": scan.get("infrastructureType", "Cellular Ooredoo"),
                 "phoneName":          scan.get("phoneName", "").strip(),
                 "scanDate":           scan.get("scanDate", ""),
-                "scanNumber":         scan.get("scanNumber", -1),
+                "scanNumber":         corrected_scan.get(eid, int(scan.get("scanNumber", -1))),
                 "servingCellId":      scan.get("servingCellId", -1),
                 "timeStamp":          scan.get("timeStamp", -1),
                 "transmitter_asu":    tx.get("asu",   SENTINEL),
