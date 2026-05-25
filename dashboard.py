@@ -428,8 +428,14 @@ tab_3d = dbc.Container([
         ], md=3),
         dbc.Col([
             html.Label("Point size", className="fw-bold"),
-            dcc.Slider(id="3d-ptsize", min=4, max=20, step=2, value=10,
-                       marks={4: "4", 12: "12", 20: "20"},
+            dcc.Slider(id="3d-ptsize", min=2, max=12, step=1, value=6,
+                       marks={2: "2", 7: "7", 12: "12"},
+                       tooltip={"placement": "bottom", "always_visible": False}),
+        ], md=2),
+        dbc.Col([
+            html.Label("Floor plan detail", className="fw-bold"),
+            dcc.Slider(id="3d-ds", min=2, max=8, step=1, value=4,
+                       marks={2: "fine", 4: "mid", 8: "fast"},
                        tooltip={"placement": "bottom", "always_visible": False}),
         ], md=3),
         dbc.Col([
@@ -444,7 +450,7 @@ tab_3d = dbc.Container([
                 value=["plans", "anchors"],
                 inline=True,
             ),
-        ], md=6),
+        ], md=4),
     ], className="mb-2"),
     dbc.Row([dbc.Col(dcc.Graph(id="3d-plot", style={"height": "750px"}))]),
 ], fluid=True)
@@ -848,15 +854,13 @@ def update_3d(metric_col, pt_size, opts):
             if not os.path.exists(img_path):
                 continue
             img  = Image.open(img_path).convert("L")
-            # Sharpen on full-res, then binarize for high-contrast floor plan
-            img  = img.filter(ImageFilter.UnsharpMask(radius=2, percent=200, threshold=3))
             W, H = img.width, img.height
-            ds   = 8
+            ds   = max(1, int(ds_factor))
             img_s = img.resize((W // ds, H // ds), _LANCZOS)
             dW, dH = img_s.size
             arr  = np.array(img_s, dtype=float) / 255.0      # (dH, dW)
             # Binarize: dark pixels (walls) → 1, light (open) → 0
-            arr  = (arr < 0.55).astype(float)
+            arr  = (arr < 0.75).astype(float)
             xs   = np.linspace(0, W, dW)
             ys   = np.linspace(0, H, dH)
             Xg, Yg = np.meshgrid(xs, ys)                     # each (dH, dW)
