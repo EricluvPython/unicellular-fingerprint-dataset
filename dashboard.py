@@ -1127,7 +1127,7 @@ def update_mobile(floor):
         title="Mean RSS vs Scan Number (solid=top, dashed=bottom)",
         xaxis_title="Scan Number", yaxis_title="RSS (dBm)",
         height=420, margin=dict(t=40),
-        legend=dict(font=dict(size=9), ncols=2))
+        legend=dict(font=dict(size=9)))
 
     # ── Collection timeline ───────────────────────────────────────────────
     fig_tl = go.Figure()
@@ -1149,7 +1149,7 @@ def update_mobile(floor):
         title="Collection Timeline (scans/min by phone & side)",
         xaxis_title="Time (UTC)", yaxis_title="Scans/min",
         height=340, margin=dict(t=40),
-        legend=dict(font=dict(size=9), ncols=2))
+        legend=dict(font=dict(size=9)))
 
     # ── Transmitter type per side ─────────────────────────────────────────
     tx_t = mb["tx_type"]
@@ -1283,4 +1283,4 @@ def update_compare(active_tab):
 # ═══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     print("Starting dashboard at  http://127.0.0.1:8050")
-    app.run(debug=False)
+    app.run(debug=True)
