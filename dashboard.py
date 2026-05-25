@@ -9,10 +9,12 @@ A "Compare" tab shows side-by-side floor comparisons across all loaded floors.
 Tabs: Overview · Floor Map · Signal Metrics · Temporal · Transmitters · Field Explorer · Compare
 """
 
-import os, io, base64
+import os, io, base64, json
 import numpy as np
 import pandas as pd
 from PIL import Image
+
+_LANCZOS = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
 
 import dash
 from dash import dcc, html, Input, Output
@@ -165,6 +167,60 @@ if not available_floors:
 
 default_floor = available_floors[0]
 print("Pre-processing done.\n")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 3-D floor alignment  (anchor RPs 20-23 are co-located across all floors)
+# ═══════════════════════════════════════════════════════════════════════════
+_ANCHOR_RPS = [20, 21, 22, 23]
+_COORDS_DIR  = os.path.join(ROOT, "coordinates", "cmuq")
+_Z_SPACING   = 450          # pixel-units between floor levels
+_IMG_H       = FLOORS[available_floors[0]]["img_h"]   # 1169
+
+def _load_coords(floor):
+    path = os.path.join(_COORDS_DIR, f"floor{floor}.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        d = json.load(f)
+    return {int(k): list(v) for k, v in d.items()}
+
+
+def _affine_fit(src, dst):
+    """Least-squares 2×3 affine:  dst ≈ M @ [x, y, 1]ᵀ"""
+    s = np.asarray(src, float)
+    d = np.asarray(dst, float)
+    A = np.hstack([s, np.ones((len(s), 1))])
+    return np.vstack([np.linalg.lstsq(A, d[:, i], rcond=None)[0] for i in range(2)])
+
+
+def _affine_apply(M, xy):
+    """Apply 2×3 matrix M to (N,2) array xy.  Returns (N,2)."""
+    xy = np.atleast_2d(np.asarray(xy, float))
+    return (M[:, :2] @ xy.T + M[:, 2:3]).T
+
+
+_ref_coords = _load_coords(1)
+FLOOR_AFFINE = {}
+for _f in available_floors:
+    _src = _load_coords(_f)
+    _sp  = [_src[r]        for r in _ANCHOR_RPS if r in _src and r in _ref_coords]
+    _dp  = [_ref_coords[r] for r in _ANCHOR_RPS if r in _src and r in _ref_coords]
+    FLOOR_AFFINE[_f] = _affine_fit(_sp, _dp) if len(_sp) >= 3 else np.eye(2, 3)
+print("Affine alignment computed for floors:", list(FLOOR_AFFINE.keys()))
+
+
+def _transform_rp_agg(floor):
+    """Return rp_agg with x3d/y3d (Floor-1 space, y flipped) and z3d added."""
+    rpa  = FLOORS[floor]["rp_agg"]
+    cols = (["rpNumber", "x", "y"] +
+            [c for c in rpa.columns if c.startswith("mean_") or c == "n_tx"])
+    d    = rpa[cols].copy()
+    xy_t = _affine_apply(FLOOR_AFFINE[floor], d[["x", "y"]].values)
+    d["x3d"] = xy_t[:, 0]
+    d["y3d"] = _IMG_H - xy_t[:, 1]     # flip y so +y = up in 3-D
+    d["z3d"] = float((floor - 1) * _Z_SPACING)
+    return d
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Figure helpers
@@ -351,6 +407,36 @@ tab_explorer = dbc.Container([
     dbc.Row([dbc.Col(html.Div(id="exp-stats"),  md=8)]),
 ], fluid=True)
 
+tab_3d = dbc.Container([
+    dbc.Row([
+        dbc.Col([
+            html.Label("Colour metric", className="fw-bold"),
+            dcc.Dropdown(id="3d-metric", options=FLOOR_METRICS,
+                         value="mean_rss", clearable=False, style={"maxWidth": 260}),
+        ], md=3),
+        dbc.Col([
+            html.Label("Point size", className="fw-bold"),
+            dcc.Slider(id="3d-ptsize", min=4, max=20, step=2, value=10,
+                       marks={4: "4", 12: "12", 20: "20"},
+                       tooltip={"placement": "bottom", "always_visible": False}),
+        ], md=3),
+        dbc.Col([
+            html.Label("Options", className="fw-bold"),
+            dbc.Checklist(
+                id="3d-opts",
+                options=[
+                    {"label": " Floor plans",  "value": "plans"},
+                    {"label": " Anchor lines", "value": "anchors"},
+                    {"label": " RP labels",    "value": "labels"},
+                ],
+                value=["plans", "anchors"],
+                inline=True,
+            ),
+        ], md=6),
+    ], className="mb-2"),
+    dbc.Row([dbc.Col(dcc.Graph(id="3d-plot", style={"height": "750px"}))]),
+], fluid=True)
+
 tab_compare = dbc.Container(id="compare-content", fluid=True)
 
 all_tabs = [
@@ -360,6 +446,7 @@ all_tabs = [
     dbc.Tab(tab_temporal,  label="Temporal",         tab_id="tab-temporal"),
     dbc.Tab(tab_tx,        label="Transmitters",     tab_id="tab-tx"),
     dbc.Tab(tab_explorer,  label="Field Explorer",   tab_id="tab-explorer"),
+    dbc.Tab(tab_3d,        label="3D View",           tab_id="tab-3d"),
     dbc.Tab(tab_compare,   label="Compare Floors",   tab_id="tab-compare"),
 ]
 
@@ -718,6 +805,141 @@ def update_explorer(floor, col):
         bordered=True, size="sm", className="mt-2", style={"maxWidth":"500px"})
     return fig, table
 
+# ── 3-D View ──────────────────────────────────────────────────────────────
+@app.callback(
+    Output("3d-plot",  "figure"),
+    Input("3d-metric", "value"),
+    Input("3d-ptsize", "value"),
+    Input("3d-opts",   "value"),
+)
+def update_3d(metric_col, pt_size, opts):
+    opts  = opts or []
+    label = METRIC_MAP.get(metric_col, metric_col)
+    FCOLS = {1: "#377eb8", 2: "#e41a1c", 3: "#4daf4a"}
+    fmt   = ".0f" if metric_col == "n_tx" else ".2f"
+
+    # Pre-transform all floors once
+    fdata = {f: _transform_rp_agg(f) for f in available_floors if FLOORS[f] is not None}
+
+    # Global colour range
+    all_v = pd.concat([fdata[f][metric_col].dropna() for f in fdata])
+    cmin, cmax = float(all_v.min()), float(all_v.max())
+
+    traces = []
+
+    # ── Floor plan surfaces ───────────────────────────────────────────────
+    if "plans" in opts:
+        for f in available_floors:
+            if FLOORS[f] is None:
+                continue
+            img_path = os.path.join(ROOT, FLOOR_CONFIG[f]["img"])
+            if not os.path.exists(img_path):
+                continue
+            img  = Image.open(img_path).convert("L")
+            W, H = img.width, img.height
+            ds   = 12
+            img_s = img.resize((W // ds, H // ds), _LANCZOS)
+            dW, dH = img_s.size
+            arr  = np.array(img_s, dtype=float) / 255.0      # (dH, dW)
+            xs   = np.linspace(0, W, dW)
+            ys   = np.linspace(0, H, dH)
+            Xg, Yg = np.meshgrid(xs, ys)                     # each (dH, dW)
+            pts  = np.column_stack([Xg.ravel(), Yg.ravel()])
+            pt   = _affine_apply(FLOOR_AFFINE[f], pts)
+            Xt   = pt[:, 0].reshape(dH, dW)
+            Yt   = (_IMG_H - pt[:, 1]).reshape(dH, dW)
+            Zt   = np.full((dH, dW), (f - 1) * _Z_SPACING)
+            traces.append(go.Surface(
+                x=Xt, y=Yt, z=Zt,
+                surfacecolor=arr,
+                colorscale=[[0, "#444"], [1, "#f8f8f8"]],
+                showscale=False, opacity=0.38,
+                name=f"Floor {f} plan", showlegend=True,
+                hoverinfo="skip",
+            ))
+
+    # ── RP scatter3d per floor ────────────────────────────────────────────
+    n_fl = len(available_floors)
+    for fi, f in enumerate(available_floors):
+        if f not in fdata:
+            continue
+        d  = fdata[f].dropna(subset=[metric_col])
+        v  = d[metric_col].values
+        hover = [
+            f"<b>RP {rp}</b>  Floor {f}<br>{label}: {val:{fmt}}"
+            for rp, val in zip(d["rpNumber"].values, v)
+        ]
+        mode = "markers+text" if "labels" in opts else "markers"
+        txt  = d["rpNumber"].astype(str).tolist() if "labels" in opts else []
+        cb_kw = ({"colorbar": dict(title=label, thickness=14, len=0.55, x=1.02)}
+                 if fi == n_fl - 1 else {})
+        traces.append(go.Scatter3d(
+            x=d["x3d"].values, y=d["y3d"].values, z=d["z3d"].values,
+            mode=mode,
+            text=txt,
+            textposition="top center",
+            textfont=dict(size=8, color=FCOLS.get(f, "#333")),
+            marker=dict(
+                size=pt_size, color=v,
+                colorscale="RdYlGn", cmin=cmin, cmax=cmax,
+                showscale=(fi == n_fl - 1),
+                line=dict(width=1, color="rgba(255,255,255,0.6)"),
+                **cb_kw,
+            ),
+            name=f"Floor {f}",
+            hovertext=hover, hoverinfo="text",
+        ))
+
+    # ── Anchor vertical lines ─────────────────────────────────────────────
+    if "anchors" in opts:
+        for i, rp in enumerate(_ANCHOR_RPS):
+            xs_a, ys_a, zs_a = [], [], []
+            for f in available_floors:
+                if f not in fdata:
+                    continue
+                row = fdata[f][fdata[f]["rpNumber"] == rp]
+                if row.empty:
+                    continue
+                xs_a.append(float(row["x3d"].iloc[0]))
+                ys_a.append(float(row["y3d"].iloc[0]))
+                zs_a.append(float(row["z3d"].iloc[0]))
+            if len(xs_a) < 2:
+                continue
+            traces.append(go.Scatter3d(
+                x=xs_a, y=ys_a, z=zs_a,
+                mode="lines",
+                line=dict(color="gold", width=4, dash="dot"),
+                name="Anchor RPs" if i == 0 else f"RP {rp}",
+                showlegend=(i == 0),
+                hoverinfo="skip",
+            ))
+
+    # ── Layout ────────────────────────────────────────────────────────────
+    fig = go.Figure(traces)
+    fig.update_layout(
+        title=f"3D Building View – {label}",
+        scene=dict(
+            xaxis=dict(title="", showbackground=False, gridcolor="#ddd",
+                       range=[0, 1650], showticklabels=False),
+            yaxis=dict(title="", showbackground=False, gridcolor="#ddd",
+                       range=[0, _IMG_H], showticklabels=False),
+            zaxis=dict(
+                title="Floor level",
+                showbackground=True,
+                backgroundcolor="rgba(220,230,245,0.3)",
+                gridcolor="#ccc",
+                tickvals=[(f - 1) * _Z_SPACING for f in available_floors],
+                ticktext=[f"Floor {f}" for f in available_floors],
+            ),
+            aspectmode="manual",
+            aspectratio=dict(x=1.4, y=1.0, z=0.55),
+            camera=dict(eye=dict(x=-1.5, y=-1.8, z=1.1)),
+        ),
+        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.85)"),
+        margin=dict(l=0, r=80, t=44, b=0),
+        paper_bgcolor="white",
+    )
+    return fig
 
 # ── Compare Floors ────────────────────────────────────────────────────────
 @app.callback(Output("compare-content","children"), Input("tabs","active_tab"))
