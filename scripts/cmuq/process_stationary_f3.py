@@ -37,12 +37,45 @@ FIELDNAMES = [
 
 SENTINEL = 2_147_483_647  # Java Integer.MAX_VALUE used as "no value" in raw export
 
+DUP_PHONE   = "25028RN03A"
+DUP_PHONE_2 = "25028RN03A-2"
+
 
 def load_coords(path):
     if not os.path.exists(path):
         print(f"WARNING: {path} not found – run assign_coordinates_f3.py first.")
         return {}
     return {int(k): v for k, v in json.load(open(path, encoding="utf-8")).items()}
+
+
+def resolve_duplicate_phones(data):
+    """
+    For phone '25028RN03A', there are 2+ entries per (rpNumber, scanNumber).
+    Identify which entry_ids belong to the second physical phone by comparing
+    timestamps within each (rp, scanNumber) group.
+    Returns a set of entry_ids that should be renamed to DUP_PHONE_2.
+    """
+    groups = defaultdict(list)
+    for eid, entry in data.items():
+        ph = entry.get("scan", {}).get("phoneName", "").strip()
+        if ph != DUP_PHONE:
+            continue
+        rp = entry.get("rpNumber")
+        sn = entry.get("scan", {}).get("scanNumber")
+        ts = entry.get("scan", {}).get("timeStamp", 0)
+        groups[(rp, sn)].append((eid, ts))
+
+    rename_set = set()
+    for (rp, sn), entries in groups.items():
+        if len(entries) < 2:
+            continue
+        entries_sorted = sorted(entries, key=lambda x: x[1])
+        for eid, _ in entries_sorted[1:]:
+            rename_set.add(eid)
+
+    print(f"Identified {len(rename_set)} entries to rename "
+          f"'{DUP_PHONE}' → '{DUP_PHONE_2}'")
+    return rename_set
 
 
 def main():
@@ -59,6 +92,8 @@ def main():
     # Floor 3 uses a flat dict (no Fingerprints wrapper), same format as floor 2.
     # Transmitter list key changed to 'transmitterInfoList' in the updated app version.
 
+    rename_set = resolve_duplicate_phones(data)
+
     rows = []
     for entry_id, entry in data.items():
         scan = entry.get("scan", entry)
@@ -66,6 +101,8 @@ def main():
         xy   = coords.get(rp, [-1, -1])
 
         phone = scan.get("phoneName", "").strip()
+        if entry_id in rename_set:
+            phone = DUP_PHONE_2
         for tx in scan.get("transmitterInfoList", scan.get("transmitters", [])):
             rssi = int(tx.get("rssi", SENTINEL))
             snr  = int(tx.get("snr",  SENTINEL))
