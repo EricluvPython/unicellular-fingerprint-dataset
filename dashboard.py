@@ -12,7 +12,7 @@ Tabs: Overview · Floor Map · Signal Metrics · Temporal · Transmitters · Fie
 import os, io, base64, json
 import numpy as np
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageFilter
 
 _LANCZOS = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
 
@@ -848,11 +848,15 @@ def update_3d(metric_col, pt_size, opts):
             if not os.path.exists(img_path):
                 continue
             img  = Image.open(img_path).convert("L")
+            # Sharpen on full-res, then binarize for high-contrast floor plan
+            img  = img.filter(ImageFilter.UnsharpMask(radius=2, percent=200, threshold=3))
             W, H = img.width, img.height
-            ds   = 12
+            ds   = 8
             img_s = img.resize((W // ds, H // ds), _LANCZOS)
             dW, dH = img_s.size
             arr  = np.array(img_s, dtype=float) / 255.0      # (dH, dW)
+            # Binarize: dark pixels (walls) → 1, light (open) → 0
+            arr  = (arr < 0.55).astype(float)
             xs   = np.linspace(0, W, dW)
             ys   = np.linspace(0, H, dH)
             Xg, Yg = np.meshgrid(xs, ys)                     # each (dH, dW)
@@ -864,8 +868,8 @@ def update_3d(metric_col, pt_size, opts):
             traces.append(go.Surface(
                 x=Xt, y=Yt, z=Zt,
                 surfacecolor=arr,
-                colorscale=[[0, "#444"], [1, "#f8f8f8"]],
-                showscale=False, opacity=0.38,
+                colorscale=[[0, "#f0f0f0"], [1, "#111111"]],
+                showscale=False, opacity=0.65,
                 name=f"Floor {f} plan", showlegend=True,
                 hoverinfo="skip",
             ))
