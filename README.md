@@ -25,7 +25,7 @@
 
 | Site | Location | Floors / Areas | Stationary | Mobile |
 |------|----------|----------------|------------|--------|
-| **CMUQ** | Carnegie Mellon Univ. in Qatar | Floors 1, 2, 3 | F1 done, F2 done, F3 done | planned |
+| **CMUQ** | Carnegie Mellon Univ. in Qatar | Floors 1, 2, 3 | ✅ F1, F2, F3 | ✅ F1, F2, F3 |
 | **Ezdan Tower** | Doha | Towers 1-4 | planned | planned |
 | **Msheireb Parking** | Msheireb Downtown Doha | Parking lot | planned | planned |
 | **EC Parking** | Education City | Parking lot | planned | planned |
@@ -40,31 +40,33 @@ unicellular-fingerprint-dataset/
 |-- .gitattributes          # *.csv tracked by Git LFS
 |-- .gitignore
 |-- requirements.txt
-|-- dashboard.py            # interactive Dash app (CMUQ stationary)
+|-- dashboard.py            # interactive Dash app (stationary + mobile)
 |
 |-- data/                   # processed CSVs (large files via Git LFS)
 |   |-- cmuq/
 |   |   |-- stationary/
-|   |   |   |-- floor1.csv  (~128 MB)
-|   |   |   |-- floor2.csv  (~145 MB)
-|   |   |   \-- floor3.csv  (~145 MB)
+|   |   |   |-- floor1.csv  (~128 MB, 734 k rows)
+|   |   |   |-- floor2.csv  (~145 MB, 833 k rows)
+|   |   |   \-- floor3.csv  (~145 MB, 606 k rows)
 |   |   \-- mobile/
-|   |       |-- floor1.csv  (planned)
-|   |       |-- floor2.csv  (planned)
-|   |       \-- floor3.csv  (planned)
-|   |-- ezdan/tower1..4/    (planned)
+|   |       |-- floor1.csv  (~47 MB, 262 k rows)
+|   |       |-- floor2.csv  (~51 MB, 283 k rows)
+|   |       \-- floor3.csv  (~33 MB, 183 k rows)
+|   |-- ezdan/              (planned)
 |   |-- msheireb_parking/   (planned)
-|   \-- ec_parking/        (planned)
+|   \-- ec_parking/         (planned)
 |
 |-- floor_plans/            # rasterised floor plan PNGs
 |   \-- cmuq/
 |       |-- floor1.png
-|       \-- floor2.png
+|       |-- floor2.png
+|       \-- floor3.png
 |
 |-- coordinates/            # RP pixel coordinates (JSON)
 |   \-- cmuq/
 |       |-- floor1.json
-|       \-- floor2.json
+|       |-- floor2.json
+|       \-- floor3.json
 |
 |-- figures/                # publication-ready overview figures
 |   \-- cmuq/
@@ -74,16 +76,14 @@ unicellular-fingerprint-dataset/
 |   \-- cmuq/
 |       |-- assign_coordinates_f1.py    # interactive RP click tool
 |       |-- assign_coordinates_f2.py
-|       |-- assign_coordinates_f3.py    # skeleton
-|       |-- process_stationary_f1.py    # JSON -> CSV
+|       |-- assign_coordinates_f3.py
+|       |-- process_stationary_f1.py    # JSON -> stationary CSV
 |       |-- process_stationary_f2.py
-|       |-- process_stationary_f3.py    # skeleton
+|       |-- process_stationary_f3.py
 |       |-- visualize_stationary_f1.py
 |       |-- visualize_stationary_f2.py
-|       |-- visualize_stationary_f3.py  # skeleton
-|       |-- process_mobile_f1.py        # skeleton
-|       |-- process_mobile_f2.py        # skeleton
-|       \-- process_mobile_f3.py       # skeleton
+|       |-- visualize_stationary_f3.py
+|       \-- process_mobile.py           # JSON -> mobile CSVs (all 3 floors)
 |
 \-- raw/                   # NOT in repo - place raw Firebase exports here
     \-- .gitkeep
@@ -93,7 +93,7 @@ unicellular-fingerprint-dataset/
 
 ## Data Schema
 
-Every processed CSV (stationary and mobile) shares the same 24-column schema:
+### Stationary CSV (24 columns)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -101,25 +101,36 @@ Every processed CSV (stationary and mobile) shares the same 24-column schema:
 | buildingNumber | int | Building ID (5 = CMUQ) |
 | entryDate | str | ISO date of the session |
 | floorNumber | int | Floor number |
-| rpNumber | int | Reference point index (-1 in mobile mode) |
-| x, y | int | Pixel coordinates on floor plan (-1 in mobile mode) |
+| rpNumber | int | Reference point index |
+| x, y | int | Pixel coordinates on floor plan |
 | batteryPower | float | Device battery % at scan time |
 | deviceHeight | float | Holding height in metres |
 | hoFlag | bool | Handover flag |
 | infrastructureType | str | Network operator / RAT description |
 | phoneName | str | Device identifier |
 | scanDate | str | ISO timestamp of the scan |
-| scanNumber | int | Scan index within the session |
+| scanNumber | int | Scan index within the session (1–300 per RP per phone) |
 | servingCellId | int | Transmitter ID of the serving cell |
 | timeStamp | int | Unix millisecond timestamp |
 | transmitter_asu | int | Arbitrary Strength Unit |
 | transmitter_id | int | Unique transmitter (cell) identifier |
-| transmitter_level | int | Android signal level (0-4) |
+| transmitter_level | int | Android signal level (0–4) |
 | transmitter_rsrq | float | Reference Signal Received Quality (dB) |
 | transmitter_rss | float | Received Signal Strength (dBm) |
 | transmitter_rssi | float | RSSI (dBm); blank where raw value = INT_MAX sentinel |
 | transmitter_snr | float | SNR (dB); blank where raw value = INT_MAX sentinel |
 | transmitter_type | str | Network type string (e.g. LTE, NR) |
+
+### Mobile CSV (25 columns = stationary + `side`)
+
+Same schema as stationary, with the following differences:
+
+| Column | Value / Notes |
+|--------|---------------|
+| rpNumber | Always `-1` (no fixed reference point) |
+| x, y | Always `-1` |
+| scanNumber | Monotonic 1-based index per phone per floor (reconstructed from time-sorted order; the Android app resets its internal counter every ~1000 scans) |
+| **side** | `top` = north corridor (straight wall) · `bottom` = south corridor (curved wall). Assigned automatically by finding the largest timestamp gap within each phone's collection and labelling entries before the gap `top` and after `bottom`. |
 
 **Sentinel masking**: The Android API returns Integer.MAX_VALUE (2,147,483,647) when a metric is unavailable.
 Processing scripts replace these with empty strings so pandas reads them as NaN.
@@ -130,23 +141,30 @@ Processing scripts replace these with empty strings so pandas reads them as NaN.
 
 ### Stationary Mode
 
-1. **Floor plan preparation** - Convert the PDF floor plan to PNG (`assign_coordinates_f*.py`, Phase 1).
-2. **Circle detection** - OpenCV detects red RP markers automatically; result cached in coordinates/cmuq/detected_circles_f*.json.
-3. **RP assignment** - Researcher clicks each detected circle in RP order (1 to N) in an interactive matplotlib window; saves coordinates/cmuq/floor*.json.
-4. **Data collection** - 7 smartphones placed at each RP simultaneously. 300 cellular scans per (RP, phone) pair collected via the UniCellular Android app and exported from Firebase Realtime Database.
-5. **Processing** - process_stationary_f*.py parses the raw JSON, merges pixel coordinates, masks sentinel values, and writes data/cmuq/stationary/floor*.csv.
-6. **Visualisation** - `visualize_stationary_f*.py` generates a 6-panel static overview figure.
+1. **Floor plan preparation** – Convert the PDF floor plan to PNG (`assign_coordinates_f*.py`, Phase 1).
+2. **Circle detection** – OpenCV detects red RP markers automatically; result cached in `coordinates/cmuq/detected_circles_f*.json`.
+3. **RP assignment** – Researcher clicks each detected circle in RP order (1 to N) in an interactive matplotlib window; saves `coordinates/cmuq/floor*.json`.
+4. **Data collection** – 7 smartphones placed at each RP simultaneously. 300 cellular scans per (RP, phone) pair collected via the UniCellular Android app and exported from Firebase Realtime Database.
+5. **Processing** – `process_stationary_f*.py` parses the raw JSON, merges pixel coordinates, masks sentinel values, and writes `data/cmuq/stationary/floor*.csv`.
+6. **Visualisation** – `visualize_stationary_f*.py` generates a 6-panel static overview figure.
 
-### Mobile Mode
+### Mobile Mode (CMUQ)
 
-1. A single researcher walks the entire floor continuously for approximately 1 hour.
-2. No reference points are marked - position is not recorded. All rows have `rpNumber = -1`, `x = -1`, `y = -1`.
-3. The raw Firebase export is processed by process_mobile_f*.py, producing a CSV with the same 24-column schema.
-4. Mobile data is intended for training/evaluating models that do not require labelled reference points (e.g. unsupervised or self-supervised localisation).
+1. A single researcher walks the entire floor continuously, one side at a time. All 7 phones are carried simultaneously.
+2. **Side labelling** – The corridor has two distinct sides:
+   - **top** = north corridor (straight wall)
+   - **bottom** = south corridor (curved wall)  
+   The side label is assigned automatically by `process_mobile.py`: for each (phone, floor), entries are sorted by timestamp and the single largest time gap is found; entries before the gap are labelled `top`, entries after are labelled `bottom`.
+3. No reference points are marked — position is not recorded. All rows have `rpNumber = -1`, `x = -1`, `y = -1`.
+4. **Scan number reconstruction** – The Android app resets its internal scan counter every ~1000 scans. `process_mobile.py` discards the raw counter and assigns a monotonic 1-based sequential index per (phone, floor) based on time-sorted order, so `scanNumber` runs from 1 to the total number of scans (typically 6 000–11 000 per phone per floor).
+5. **Floor 1 filtering** – The Floor 1 raw export includes a mistake collection run made before 10:02 local time (07:02 UTC, 2026-05-25). These 13 552 entries are dropped during processing.
+6. Mobile data is intended for training/evaluating models that do not require labelled reference points (e.g. unsupervised or self-supervised localisation).
 
 ---
 
 ## Processing Pipeline
+
+### Stationary
 
 ```
 Firebase export (raw JSON)
@@ -164,6 +182,25 @@ scripts/cmuq/visualize_stationary_f*.py  -->  figures/cmuq/
 dashboard.py  (interactive Dash app)
 ```
 
+### Mobile
+
+```
+Firebase export (raw JSON)
+        |
+        v
+scripts/cmuq/process_mobile.py
+  - filters mistake run (Floor 1 only, before 07:02 UTC 2026-05-25)
+  - assigns side label (top / bottom) via largest timestamp gap per phone
+  - reconstructs monotonic scanNumber (1-based index per phone per floor)
+  - masks INT_MAX sentinels
+        |
+        v
+data/cmuq/mobile/floor{1,2,3}.csv  (Git LFS)
+        |
+        v
+dashboard.py  (Mobile Data tab)
+```
+
 ---
 
 ## Interactive Dashboard
@@ -176,7 +213,33 @@ python dashboard.py
 # Open http://127.0.0.1:8050
 ```
 
-The dashboard shows all floors for which a CSV is present.
+The dashboard automatically loads every floor for which a stationary or mobile CSV is present.
+It contains the following tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Overview** | KPI cards: total rows, unique phones, transmitters, RPs; per-floor summary |
+| **Floor Map** | Reference-point heatmap overlaid on the floor plan (stationary only) |
+| **Signal Metrics** | Per-phone and per-RP signal distributions; CDF and box plots |
+| **Temporal** | Scan-level signal time series; rolling mean overlays |
+| **Transmitters** | Transmitter type breakdown; serving-cell statistics |
+| **Field Explorer** | RP-by-RP drill-down; violin plots per transmitter |
+| **3D View** | 3-D scatter of RSS/RSSI by RP, colour-coded by phone |
+| **Mobile Data** | Dedicated tab for mobile (free-walk) sessions — see below |
+| **Compare Floors** | Side-by-side metric comparison across floors |
+
+### Mobile Data Tab
+
+The **Mobile Data** tab provides an overview of the free-walk sessions:
+
+- **Metric selector** – Choose the signal metric to visualise: RSS · RSSI · RSRQ · SNR · ASU · Level.
+- **KPI cards** – Total scans, unique phones, unique transmitters, plus scan counts broken down by side (top / bottom).
+- **Signal distribution** – Violin plots of the selected metric grouped by corridor side and phone.
+- **Collection timeline** – Scan-level time series of the mean selected metric per phone, showing when each phone was active.
+- **Mean metric per phone & side** – Grouped bar chart comparing the mean selected metric across phones and sides.
+- **Scan counts** – Grouped bar chart of total scan counts per phone, split by side.
+- **TX type breakdown** – Pie chart of transmitter type proportions (LTE, NR, …).
+- **Side note** – The `side` assignment is automatic (largest timestamp gap); verify manually if exact corridor labelling matters for your use case.
 
 ---
 
