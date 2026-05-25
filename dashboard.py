@@ -33,6 +33,12 @@ FLOOR_CONFIG = {
     3: dict(csv=os.path.join("data", "cmuq", "stationary", "floor3.csv"), img=os.path.join("floor_plans", "cmuq", "floor3.png"),  label="Floor 3"),
 }
 
+MOBILE_CONFIG = {
+    1: dict(csv=os.path.join("data", "cmuq", "mobile", "floor1.csv"), label="Floor 1"),
+    2: dict(csv=os.path.join("data", "cmuq", "mobile", "floor2.csv"), label="Floor 2"),
+    3: dict(csv=os.path.join("data", "cmuq", "mobile", "floor3.csv"), label="Floor 3"),
+}
+
 SENTINEL = 1e8
 
 PHONE_COLORS = {
@@ -145,6 +151,58 @@ def preprocess(df):
                 tx_ids=sorted(df["transmitter_id"].unique()))
 
 
+def preprocess_mobile(df):
+    """Return a bundle of aggregated tables for a mobile floor dataframe."""
+    df = df.copy()
+    for col in ["transmitter_rssi", "transmitter_snr"]:
+        df[col] = df[col].where(df[col].abs() < SENTINEL, other=np.nan)
+
+    serving = df[df["transmitter_id"] == df["servingCellId"]].copy()
+
+    phone_side_agg = (
+        serving.groupby(["phoneName", "side"])
+        .agg(mean_rss   =("transmitter_rss",  "mean"),
+             mean_rssi  =("transmitter_rssi", "mean"),
+             mean_rsrq  =("transmitter_rsrq", "mean"),
+             mean_snr   =("transmitter_snr",  "mean"),
+             mean_asu   =("transmitter_asu",  "mean"),
+             mean_level =("transmitter_level","mean"),
+             n_scans    =("scanNumber",        "nunique"))
+        .reset_index()
+    )
+
+    temporal = (
+        serving.groupby(["phoneName", "side", "scanNumber"])
+        .agg(mean_rss  =("transmitter_rss",  "mean"),
+             mean_rssi =("transmitter_rssi", "mean"),
+             mean_rsrq =("transmitter_rsrq", "mean"),
+             mean_snr  =("transmitter_snr",  "mean"))
+        .reset_index()
+    )
+
+    df["ts_dt"] = pd.to_datetime(df["timeStamp"], unit="ms", utc=True)
+    timeline = (
+        df.groupby([df["ts_dt"].dt.floor("min"), "side", "phoneName"])
+        .size().reset_index(name="count").rename(columns={"ts_dt": "time"})
+    )
+
+    tx_type = (
+        df.groupby(["side", "transmitter_type"])
+        .size().reset_index(name="count")
+    )
+
+    return dict(
+        df=df, serving=serving,
+        phone_side_agg=phone_side_agg,
+        temporal=temporal,
+        timeline=timeline,
+        tx_type=tx_type,
+        phones=sorted(df["phoneName"].unique()),
+        sides=sorted(df["side"].unique()),
+        tx_ids=sorted(df["transmitter_id"].unique()),
+    )
+
+
 print("Loading floor data …")
 FLOORS = {}
 for fnum, cfg in FLOOR_CONFIG.items():
@@ -167,6 +225,21 @@ if not available_floors:
 
 default_floor = available_floors[0]
 print("Pre-processing done.\n")
+
+print("Loading mobile floor data …")
+MOBILE_FLOORS = {}
+for fnum, cfg in MOBILE_CONFIG.items():
+    csv_path = os.path.join(ROOT, cfg["csv"])
+    if os.path.exists(csv_path):
+        print(f"  Mobile Floor {fnum}: {csv_path}")
+        raw_m = pd.read_csv(csv_path)
+        MOBILE_FLOORS[fnum] = preprocess_mobile(raw_m)
+        print(f"    {len(raw_m):,} rows | {raw_m['phoneName'].nunique()} phones | "
+              f"sides: {sorted(raw_m['side'].unique())}")
+    else:
+        MOBILE_FLOORS[fnum] = None
+        print(f"  Mobile Floor {fnum}: CSV not found – skipping.")
+print("Mobile pre-processing done.\n")
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 3-D floor alignment – each row maps floor → RP number at the same physical location
@@ -455,6 +528,10 @@ tab_3d = dbc.Container([
     dbc.Row([dbc.Col(dcc.Graph(id="3d-plot", style={"height": "750px"}))]),
 ], fluid=True)
 
+SIDE_COLORS = {"top": "#2196F3", "bottom": "#FF5722"}
+
+tab_mobile = dbc.Container(id="mobile-content", fluid=True)
+
 tab_compare = dbc.Container(id="compare-content", fluid=True)
 
 all_tabs = [
@@ -465,7 +542,8 @@ all_tabs = [
     dbc.Tab(tab_tx,        label="Transmitters",     tab_id="tab-tx"),
     dbc.Tab(tab_explorer,  label="Field Explorer",   tab_id="tab-explorer"),
     dbc.Tab(tab_3d,        label="3D View",           tab_id="tab-3d"),
-    dbc.Tab(tab_compare,   label="Compare Floors",   tab_id="tab-compare"),
+    dbc.Tab(tab_mobile,    label="Mobile Data",        tab_id="tab-mobile"),
+    dbc.Tab(tab_compare,   label="Compare Floors",     tab_id="tab-compare"),
 ]
 
 app.layout = html.Div([
@@ -965,6 +1043,152 @@ def update_3d(metric_col, pt_size, ds_factor, opts):
         paper_bgcolor="white",
     )
     return fig
+
+# ── Mobile Data ──────────────────────────────────────────────────────────
+@app.callback(Output("mobile-content", "children"), Input("floor-sel", "value"))
+def update_mobile(floor):
+    mb = MOBILE_FLOORS.get(int(floor))
+    if mb is None:
+        return dbc.Alert(
+            "Mobile data not available for this floor – run process_mobile.py first.",
+            color="warning", className="mt-3")
+
+    df     = mb["df"]
+    srvg   = mb["serving"]
+    phones = mb["phones"]
+    sides  = mb["sides"]
+    psa    = mb["phone_side_agg"]
+    temp   = mb["temporal"]
+    tl     = mb["timeline"]
+
+    # ── KPI row ──────────────────────────────────────────────────────────
+    top_n   = (df["side"] == "top").sum()
+    bot_n   = (df["side"] == "bottom").sum()
+    kpis = dbc.Row([
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{len(df):,}", className="text-primary"),
+                                       html.P("Total rows", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(str(len(phones)), className="text-success"),
+                                       html.P("Phones", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{df['transmitter_id'].nunique()}", className="text-danger"),
+                                       html.P("Transmitters", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_n:,}", className="text-info"),
+                                       html.P("Top-side rows", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{bot_n:,}", className="text-warning"),
+                                       html.P("Bottom-side rows", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{df['scanNumber'].nunique()}", className="text-secondary"),
+                                       html.P("Unique scans", className="text-muted small")])), width=2),
+    ], className="mb-3 g-2")
+
+    # ── RSS violin: top vs bottom ─────────────────────────────────────────
+    fig_side_v = go.Figure()
+    for s in sides:
+        vals = srvg[srvg["side"] == s]["transmitter_rss"].dropna()
+        fig_side_v.add_trace(go.Violin(
+            y=vals, name=s.capitalize(),
+            box_visible=True, meanline_visible=True,
+            fillcolor=SIDE_COLORS.get(s, "#aaa"), opacity=0.8,
+            line_color="black", line_width=0.8))
+    fig_side_v.update_layout(
+        title="RSS by Side (serving cell)",
+        yaxis_title="RSS (dBm)", height=380, margin=dict(t=40))
+
+    # ── RSS violin: per phone ─────────────────────────────────────────────
+    fig_phone_v = go.Figure()
+    for ph in phones:
+        vals = srvg[srvg["phoneName"] == ph]["transmitter_rss"].dropna()
+        fig_phone_v.add_trace(go.Violin(
+            y=vals, name=short(ph),
+            box_visible=True, meanline_visible=True,
+            fillcolor=PHONE_COLORS.get(ph, "#aaa"), opacity=0.8,
+            line_color="black", line_width=0.8))
+    fig_phone_v.update_layout(
+        title="RSS by Phone (serving cell)",
+        yaxis_title="RSS (dBm)", height=380, margin=dict(t=40))
+
+    # ── Scan timeline: RSS vs scan number per phone×side ──────────────────
+    fig_scan = go.Figure()
+    line_dash = {"top": "solid", "bottom": "dash"}
+    for s in sides:
+        for ph in phones:
+            sub = (temp[(temp["phoneName"] == ph) & (temp["side"] == s)]
+                   .sort_values("scanNumber"))
+            if sub.empty:
+                continue
+            fig_scan.add_trace(go.Scatter(
+                x=sub["scanNumber"], y=sub["mean_rss"],
+                mode="lines",
+                name=f"{short(ph)} ({s})",
+                line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
+                          width=1.4, dash=line_dash.get(s, "solid")),
+                legendgroup=short(ph),
+                hovertemplate=f"<b>{short(ph)}</b> [{s}]<br>Scan %{{x}}: %{{y:.1f}} dBm<extra></extra>",
+            ))
+    fig_scan.update_layout(
+        title="Mean RSS vs Scan Number (solid=top, dashed=bottom)",
+        xaxis_title="Scan Number", yaxis_title="RSS (dBm)",
+        height=420, margin=dict(t=40),
+        legend=dict(font=dict(size=9), ncols=2))
+
+    # ── Collection timeline ───────────────────────────────────────────────
+    fig_tl = go.Figure()
+    for s in sides:
+        for ph in phones:
+            sub = tl[(tl["side"] == s) & (tl["phoneName"] == ph)].sort_values("time")
+            if sub.empty:
+                continue
+            fig_tl.add_trace(go.Scatter(
+                x=sub["time"], y=sub["count"],
+                mode="lines",
+                name=f"{short(ph)} ({s})",
+                line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
+                          dash=line_dash.get(s, "solid"), width=1.4),
+                legendgroup=short(ph),
+                hovertemplate=f"{short(ph)} [{s}]<br>%{{x}}: %{{y}} scans/min<extra></extra>",
+            ))
+    fig_tl.update_layout(
+        title="Collection Timeline (scans/min by phone & side)",
+        xaxis_title="Time (UTC)", yaxis_title="Scans/min",
+        height=340, margin=dict(t=40),
+        legend=dict(font=dict(size=9), ncols=2))
+
+    # ── Transmitter type per side ─────────────────────────────────────────
+    tx_t = mb["tx_type"]
+    fig_tx = px.bar(
+        tx_t, x="side", y="count", color="transmitter_type",
+        barmode="stack",
+        color_discrete_map={"GSM": "#e41a1c", "LTE": "#377eb8"},
+        title="Transmitter Type per Side",
+        labels={"side": "Side", "count": "Rows", "transmitter_type": "Type"},
+    )
+    fig_tx.update_layout(height=320, margin=dict(t=40))
+
+    # ── Mean RSS per phone per side (grouped bar) ─────────────────────────
+    fig_bar = px.bar(
+        psa, x="phoneName", y="mean_rss", color="side",
+        color_discrete_map=SIDE_COLORS,
+        barmode="group",
+        title="Mean RSS per Phone & Side (serving cell)",
+        labels={"phoneName": "Phone", "mean_rss": "Mean RSS (dBm)", "side": "Side"},
+    )
+    fig_bar.update_xaxes(tickangle=-30)
+    fig_bar.update_layout(height=320, margin=dict(t=40, b=70))
+
+    return html.Div([
+        kpis,
+        dbc.Row([
+            dbc.Col(card("RSS Distribution by Side",  dcc.Graph(figure=fig_side_v)),  md=6),
+            dbc.Col(card("RSS Distribution by Phone", dcc.Graph(figure=fig_phone_v)), md=6),
+        ]),
+        dbc.Row([
+            dbc.Col(card("Mean RSS vs Scan Number", dcc.Graph(figure=fig_scan)), md=12),
+        ]),
+        dbc.Row([
+            dbc.Col(card("Mean RSS per Phone & Side",  dcc.Graph(figure=fig_bar)), md=6),
+            dbc.Col(card("Transmitter Type per Side",  dcc.Graph(figure=fig_tx)),  md=3),
+            dbc.Col(card("Collection Timeline",        dcc.Graph(figure=fig_tl)),  md=3),
+        ]),
+    ])
+
 
 # ── Compare Floors ────────────────────────────────────────────────────────
 @app.callback(Output("compare-content","children"), Input("tabs","active_tab"))
