@@ -828,9 +828,10 @@ def update_explorer(floor, col):
     Output("3d-plot",  "figure"),
     Input("3d-metric", "value"),
     Input("3d-ptsize", "value"),
+    Input("3d-ds",     "value"),
     Input("3d-opts",   "value"),
 )
-def update_3d(metric_col, pt_size, opts):
+def update_3d(metric_col, pt_size, ds_factor, opts):
     opts  = opts or []
     label = METRIC_MAP.get(metric_col, metric_col)
     FCOLS = {1: "#377eb8", 2: "#e41a1c", 3: "#4daf4a"}
