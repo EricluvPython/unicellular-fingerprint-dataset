@@ -173,10 +173,12 @@ def preprocess_mobile(df):
 
     temporal = (
         serving.groupby(["phoneName", "side", "scanNumber"])
-        .agg(mean_rss  =("transmitter_rss",  "mean"),
-             mean_rssi =("transmitter_rssi", "mean"),
-             mean_rsrq =("transmitter_rsrq", "mean"),
-             mean_snr  =("transmitter_snr",  "mean"))
+        .agg(mean_rss   =("transmitter_rss",   "mean"),
+             mean_rssi  =("transmitter_rssi",  "mean"),
+             mean_rsrq  =("transmitter_rsrq",  "mean"),
+             mean_snr   =("transmitter_snr",   "mean"),
+             mean_asu   =("transmitter_asu",   "mean"),
+             mean_level =("transmitter_level", "mean"))
         .reset_index()
     )
 
@@ -530,7 +532,26 @@ tab_3d = dbc.Container([
 
 SIDE_COLORS = {"top": "#2196F3", "bottom": "#FF5722"}
 
-tab_mobile = dbc.Container(id="mobile-content", fluid=True)
+MOBILE_SIGNAL_OPTS = [
+    {"label": "RSS (dBm)",    "value": "transmitter_rss"},
+    {"label": "RSSI (dBm)",   "value": "transmitter_rssi"},
+    {"label": "RSRQ (dB)",    "value": "transmitter_rsrq"},
+    {"label": "SNR (dB)",     "value": "transmitter_snr"},
+    {"label": "ASU",          "value": "transmitter_asu"},
+    {"label": "Level (0–4)",  "value": "transmitter_level"},
+]
+
+tab_mobile = dbc.Container([
+    dbc.Row([
+        dbc.Col([
+            html.Label("Signal metric", className="fw-bold"),
+            dcc.Dropdown(id="mob-metric", options=MOBILE_SIGNAL_OPTS,
+                         value="transmitter_rss", clearable=False,
+                         style={"maxWidth": 260}),
+        ], md=3),
+    ], className="mb-3"),
+    html.Div(id="mobile-content"),
+], fluid=True)
 
 tab_compare = dbc.Container(id="compare-content", fluid=True)
 
@@ -1045,8 +1066,10 @@ def update_3d(metric_col, pt_size, ds_factor, opts):
     return fig
 
 # ── Mobile Data ──────────────────────────────────────────────────────────
-@app.callback(Output("mobile-content", "children"), Input("floor-sel", "value"))
-def update_mobile(floor):
+@app.callback(Output("mobile-content", "children"),
+              Input("floor-sel", "value"),
+              Input("mob-metric", "value"))
+def update_mobile(floor, metric_col):
     mb = MOBILE_FLOORS.get(int(floor))
     if mb is None:
         return dbc.Alert(
@@ -1061,9 +1084,14 @@ def update_mobile(floor):
     temp   = mb["temporal"]
     tl     = mb["timeline"]
 
+    label    = SIGNAL_COLS.get(metric_col, metric_col)
+    mean_col = "mean_" + metric_col.replace("transmitter_", "")
+
     # ── KPI row ──────────────────────────────────────────────────────────
-    top_n   = (df["side"] == "top").sum()
-    bot_n   = (df["side"] == "bottom").sum()
+    side_scans = psa.groupby("side")["n_scans"].sum()
+    top_scans  = int(side_scans.get("top",    0))
+    bot_scans  = int(side_scans.get("bottom", 0))
+
     kpis = dbc.Row([
         dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{len(df):,}", className="text-primary"),
                                        html.P("Total rows", className="text-muted small")])), width=2),
@@ -1071,61 +1099,66 @@ def update_mobile(floor):
                                        html.P("Phones", className="text-muted small")])), width=2),
         dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{df['transmitter_id'].nunique()}", className="text-danger"),
                                        html.P("Transmitters", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_n:,}", className="text-info"),
-                                       html.P("Top-side rows", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{bot_n:,}", className="text-warning"),
-                                       html.P("Bottom-side rows", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{df['scanNumber'].nunique()}", className="text-secondary"),
-                                       html.P("Unique scans", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_scans:,}", className="text-info"),
+                                       html.P("Top-side scans", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{bot_scans:,}", className="text-warning"),
+                                       html.P("Bottom-side scans", className="text-muted small")])), width=2),
+        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_scans + bot_scans:,}", className="text-secondary"),
+                                       html.P("Total scans", className="text-muted small")])), width=2),
     ], className="mb-3 g-2")
 
-    # ── RSS violin: top vs bottom ─────────────────────────────────────────
+    # ── Signal violin: top vs bottom ─────────────────────────────────────
     fig_side_v = go.Figure()
     for s in sides:
-        vals = srvg[srvg["side"] == s]["transmitter_rss"].dropna()
+        vals = srvg[srvg["side"] == s][metric_col].dropna()
         fig_side_v.add_trace(go.Violin(
             y=vals, name=s.capitalize(),
             box_visible=True, meanline_visible=True,
             fillcolor=SIDE_COLORS.get(s, "#aaa"), opacity=0.8,
             line_color="black", line_width=0.8))
     fig_side_v.update_layout(
-        title="RSS by Side (serving cell)",
-        yaxis_title="RSS (dBm)", height=380, margin=dict(t=40))
+        title=f"{label} by Side (serving cell)",
+        yaxis_title=label, height=380, margin=dict(t=40))
 
-    # ── RSS violin: per phone ─────────────────────────────────────────────
+    # ── Signal violin: per phone ──────────────────────────────────────────
     fig_phone_v = go.Figure()
     for ph in phones:
-        vals = srvg[srvg["phoneName"] == ph]["transmitter_rss"].dropna()
+        vals = srvg[srvg["phoneName"] == ph][metric_col].dropna()
         fig_phone_v.add_trace(go.Violin(
             y=vals, name=short(ph),
             box_visible=True, meanline_visible=True,
             fillcolor=PHONE_COLORS.get(ph, "#aaa"), opacity=0.8,
             line_color="black", line_width=0.8))
     fig_phone_v.update_layout(
-        title="RSS by Phone (serving cell)",
-        yaxis_title="RSS (dBm)", height=380, margin=dict(t=40))
+        title=f"{label} by Phone (serving cell)",
+        yaxis_title=label, height=380, margin=dict(t=40))
 
-    # ── Scan timeline: RSS vs scan number per phone×side ──────────────────
+    # ── Metric vs scan number per phone×side ──────────────────────────────
     fig_scan = go.Figure()
     line_dash = {"top": "solid", "bottom": "dash"}
-    for s in sides:
-        for ph in phones:
-            sub = (temp[(temp["phoneName"] == ph) & (temp["side"] == s)]
-                   .sort_values("scanNumber"))
-            if sub.empty:
-                continue
-            fig_scan.add_trace(go.Scatter(
-                x=sub["scanNumber"], y=sub["mean_rss"],
-                mode="lines",
-                name=f"{short(ph)} ({s})",
-                line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
-                          width=1.4, dash=line_dash.get(s, "solid")),
-                legendgroup=short(ph),
-                hovertemplate=f"<b>{short(ph)}</b> [{s}]<br>Scan %{{x}}: %{{y:.1f}} dBm<extra></extra>",
-            ))
+    if mean_col in temp.columns:
+        for s in sides:
+            for ph in phones:
+                sub = (temp[(temp["phoneName"] == ph) & (temp["side"] == s)]
+                       .sort_values("scanNumber"))
+                if sub.empty:
+                    continue
+                fig_scan.add_trace(go.Scatter(
+                    x=sub["scanNumber"], y=sub[mean_col],
+                    mode="lines",
+                    name=f"{short(ph)} ({s})",
+                    line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
+                              width=1.4, dash=line_dash.get(s, "solid")),
+                    legendgroup=short(ph),
+                    hovertemplate=f"<b>{short(ph)}</b> [{s}]<br>Scan %{{x}}: %{{y:.2f}}<extra></extra>",
+                ))
+    else:
+        fig_scan.add_annotation(text=f"{label} not available in scan-level data",
+                                xref="paper", yref="paper", x=0.5, y=0.5,
+                                showarrow=False, font=dict(size=14, color="grey"))
     fig_scan.update_layout(
-        title="Mean RSS vs Scan Number (solid=top, dashed=bottom)",
-        xaxis_title="Scan Number", yaxis_title="RSS (dBm)",
+        title=f"Mean {label} vs Scan Number (solid=top, dashed=bottom)",
+        xaxis_title="Scan Number", yaxis_title=label,
         height=420, margin=dict(t=40),
         legend=dict(font=dict(size=9)))
 
@@ -1162,16 +1195,30 @@ def update_mobile(floor):
     )
     fig_tx.update_layout(height=320, margin=dict(t=40))
 
-    # ── Mean RSS per phone per side (grouped bar) ─────────────────────────
-    fig_bar = px.bar(
-        psa, x="phoneName", y="mean_rss", color="side",
-        color_discrete_map=SIDE_COLORS,
-        barmode="group",
-        title="Mean RSS per Phone & Side (serving cell)",
-        labels={"phoneName": "Phone", "mean_rss": "Mean RSS (dBm)", "side": "Side"},
-    )
+    # ── Mean metric per phone+side (grouped bar) ──────────────────────────
+    if mean_col in psa.columns:
+        fig_bar = px.bar(
+            psa, x="phoneName", y=mean_col, color="side",
+            color_discrete_map=SIDE_COLORS,
+            barmode="group",
+            title=f"Mean {label} per Phone & Side (serving cell)",
+            labels={"phoneName": "Phone", mean_col: f"Mean {label}", "side": "Side"},
+        )
+    else:
+        fig_bar = missing_fig(f"{label} aggregation not available.")
     fig_bar.update_xaxes(tickangle=-30)
     fig_bar.update_layout(height=320, margin=dict(t=40, b=70))
+
+    # ── Scan counts per phone+side (grouped bar) ──────────────────────────
+    fig_counts = px.bar(
+        psa, x="phoneName", y="n_scans", color="side",
+        color_discrete_map=SIDE_COLORS,
+        barmode="group",
+        title="Scan Counts per Phone & Side",
+        labels={"phoneName": "Phone", "n_scans": "Unique Scans", "side": "Side"},
+    )
+    fig_counts.update_xaxes(tickangle=-30)
+    fig_counts.update_layout(height=320, margin=dict(t=40, b=70))
 
     side_note = dbc.Alert(
         [html.Strong("Side labels: "),
@@ -1183,16 +1230,19 @@ def update_mobile(floor):
         kpis,
         side_note,
         dbc.Row([
-            dbc.Col(card("RSS Distribution by Side",  dcc.Graph(figure=fig_side_v)),  md=6),
-            dbc.Col(card("RSS Distribution by Phone", dcc.Graph(figure=fig_phone_v)), md=6),
+            dbc.Col(card(f"{label} Distribution by Side",  dcc.Graph(figure=fig_side_v)),  md=6),
+            dbc.Col(card(f"{label} Distribution by Phone", dcc.Graph(figure=fig_phone_v)), md=6),
         ]),
         dbc.Row([
-            dbc.Col(card("Mean RSS vs Scan Number", dcc.Graph(figure=fig_scan)), md=12),
+            dbc.Col(card(f"Mean {label} vs Scan Number", dcc.Graph(figure=fig_scan)), md=12),
         ]),
         dbc.Row([
-            dbc.Col(card("Mean RSS per Phone & Side",  dcc.Graph(figure=fig_bar)), md=6),
-            dbc.Col(card("Transmitter Type per Side",  dcc.Graph(figure=fig_tx)),  md=3),
-            dbc.Col(card("Collection Timeline",        dcc.Graph(figure=fig_tl)),  md=3),
+            dbc.Col(card(f"Mean {label} per Phone & Side", dcc.Graph(figure=fig_bar)),    md=5),
+            dbc.Col(card("Scan Counts per Phone & Side",   dcc.Graph(figure=fig_counts)), md=4),
+            dbc.Col(card("Transmitter Type per Side",      dcc.Graph(figure=fig_tx)),     md=3),
+        ]),
+        dbc.Row([
+            dbc.Col(card("Collection Timeline", dcc.Graph(figure=fig_tl)), md=12),
         ]),
     ])
 
