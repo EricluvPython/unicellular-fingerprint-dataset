@@ -4,8 +4,7 @@ Run:  python dashboard.py
 Open: http://127.0.0.1:8050
 
 Floor selector in the header switches all tabs to the chosen floor.
-A "Compare" tab shows side-by-side floor comparisons (available once both CSVs exist).
-Floor 3 is a placeholder – the CSV will appear once collection is complete.
+A "Compare" tab shows side-by-side floor comparisons across all loaded floors.
 
 Tabs: Overview · Floor Map · Signal Metrics · Temporal · Transmitters · Field Explorer · Compare
 """
@@ -29,7 +28,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 FLOOR_CONFIG = {
     1: dict(csv=os.path.join("data", "cmuq", "stationary", "floor1.csv"), img=os.path.join("floor_plans", "cmuq", "floor1.png"),  label="Floor 1"),
     2: dict(csv=os.path.join("data", "cmuq", "stationary", "floor2.csv"), img=os.path.join("floor_plans", "cmuq", "floor2.png"),  label="Floor 2"),
-    3: dict(csv=os.path.join("data", "cmuq", "stationary", "floor3.csv"), img=os.path.join("floor_plans", "cmuq", "floor3.png"),  label="Floor 3 (TBD)"),
+    3: dict(csv=os.path.join("data", "cmuq", "stationary", "floor3.csv"), img=os.path.join("floor_plans", "cmuq", "floor3.png"),  label="Floor 3"),
 }
 
 SENTINEL = 1e8
@@ -728,68 +727,84 @@ def update_compare(active_tab):
 
     if len(available_floors) < 2:
         return dbc.Alert(
-            "Only one floor loaded. Process Floor 2 data first to enable comparisons.",
+            "Only one floor loaded. Process more floor data first to enable comparisons.",
             color="warning", className="mt-3")
 
-    b1 = FLOORS[1]; b2 = FLOORS[2]
+    fl = available_floors  # e.g. [1, 2, 3]
+    md_w = max(3, 12 // len(fl))  # e.g. 4 for 3 floors, 6 for 2
 
     # Side-by-side floor maps (RSS)
-    fig_f1 = floor_scatter(b1, "mean_rss", title="Floor 1 – Mean RSS")
-    fig_f2 = floor_scatter(b2, "mean_rss", title="Floor 2 – Mean RSS")
+    map_cols = [
+        dbc.Col(card(f"Floor {f} – Mean RSS Map",
+                     dcc.Graph(figure=floor_scatter(FLOORS[f], "mean_rss",
+                                                    title=f"Floor {f} – Mean RSS"))),
+                md=md_w)
+        for f in fl
+    ]
 
-    # RSS violin both floors
+    # RSS violin all floors
     fig_box = go.Figure()
-    for fnum, b in [(1, b1), (2, b2)]:
-        vals = b["serving"]["transmitter_rss"].dropna()
+    for f in fl:
+        vals = FLOORS[f]["serving"]["transmitter_rss"].dropna()
         fig_box.add_trace(go.Violin(
-            y=vals, name=f"Floor {fnum}",
+            y=vals, name=f"Floor {f}",
             box_visible=True, meanline_visible=True, opacity=0.8))
-    fig_box.update_layout(title="Serving-Cell RSS: Floor 1 vs Floor 2",
+    floor_label = " vs ".join(f"Floor {f}" for f in fl)
+    fig_box.update_layout(title=f"Serving-Cell RSS: {floor_label}",
                            yaxis_title="RSS (dBm)", height=380, margin=dict(t=40))
 
     # Unique transmitters distribution
-    def tx_hist(b, label):
-        return go.Histogram(
-            x=b["rp_agg"]["n_tx"], name=label, opacity=0.65,
-            nbinsx=15, histnorm="percent")
-    fig_tx = go.Figure([tx_hist(b1,"Floor 1"), tx_hist(b2,"Floor 2")])
-    fig_tx.update_layout(title="Unique Transmitters per RP: Floor 1 vs Floor 2",
+    fig_tx = go.Figure()
+    for f in fl:
+        fig_tx.add_trace(go.Histogram(
+            x=FLOORS[f]["rp_agg"]["n_tx"], name=f"Floor {f}",
+            opacity=0.65, nbinsx=15, histnorm="percent"))
+    fig_tx.update_layout(title=f"Unique Transmitters per RP: {floor_label}",
                           barmode="overlay", xaxis_title="# Transmitters",
                           yaxis_title="% of RPs", height=340, margin=dict(t=40))
 
-    # Transmitter ID overlap
-    tx1 = set(FLOORS[1]["df"]["transmitter_id"].unique())
-    tx2 = set(FLOORS[2]["df"]["transmitter_id"].unique())
-    common = tx1 & tx2
-    only1  = tx1 - tx2
-    only2  = tx2 - tx1
-    fig_venn = px.bar(
-        x=["Only Floor 1","Common","Only Floor 2"],
-        y=[len(only1), len(common), len(only2)],
-        color=["Only Floor 1","Common","Only Floor 2"],
-        color_discrete_map={"Only Floor 1":"#377eb8","Common":"#4daf4a","Only Floor 2":"#e41a1c"},
-        title="Transmitter ID Overlap",
-        labels={"x":"","y":"Count"},
-    )
+    # Transmitter ID overlap (works for any number of floors)
+    tx_sets = {f: set(FLOORS[f]["df"]["transmitter_id"].unique()) for f in fl}
+    all_union = set.union(*tx_sets.values())
+    all_common = set.intersection(*tx_sets.values())
+
+    overlap_x, overlap_y = [], []
+    for f in fl:
+        others = set.union(*[tx_sets[g] for g in fl if g != f])
+        overlap_x.append(f"Only F{f}")
+        overlap_y.append(len(tx_sets[f] - others))
+    for i, fi in enumerate(fl):
+        for fj in fl[i+1:]:
+            pair_only = (tx_sets[fi] & tx_sets[fj]) - set.union(
+                *([tx_sets[g] for g in fl if g not in (fi, fj)] or [set()]))
+            overlap_x.append(f"F{fi}+F{fj} only")
+            overlap_y.append(len(pair_only))
+    overlap_x.append("All floors")
+    overlap_y.append(len(all_common))
+
+    fig_venn = px.bar(x=overlap_x, y=overlap_y, color=overlap_x,
+                      title="Transmitter ID Overlap", labels={"x":"","y":"Count"})
     fig_venn.update_layout(showlegend=False, height=320, margin=dict(t=40))
 
+    info_rows = []
+    for f in fl:
+        others = set.union(*[tx_sets[g] for g in fl if g != f])
+        unique = sorted(tx_sets[f] - others)
+        info_rows.append(html.Tr([html.Th(f"Only Floor {f}"), html.Td(str(unique))]))
+    info_rows.append(html.Tr([html.Th("Common to all"), html.Td(str(sorted(all_common)))]))
+
     return html.Div([
+        dbc.Row(map_cols),
         dbc.Row([
-            dbc.Col(card("Floor 1 – Mean RSS Map",    dcc.Graph(figure=fig_f1)), md=6),
-            dbc.Col(card("Floor 2 – Mean RSS Map",    dcc.Graph(figure=fig_f2)), md=6),
-        ]),
-        dbc.Row([
-            dbc.Col(card("RSS Distribution Comparison", dcc.Graph(figure=fig_box)), md=6),
-            dbc.Col(card("Unique TX per RP Distribution", dcc.Graph(figure=fig_tx)), md=6),
+            dbc.Col(card("RSS Distribution Comparison",    dcc.Graph(figure=fig_box)), md=6),
+            dbc.Col(card("Unique TX per RP Distribution",   dcc.Graph(figure=fig_tx)), md=6),
         ]),
         dbc.Row([
             dbc.Col(card("Transmitter ID Overlap (transmitter_id)",
-                         dcc.Graph(figure=fig_venn)), md=4),
-            dbc.Col(dbc.Alert([
-                html.Strong("Common transmitters: "), f"{sorted(common)}", html.Br(),
-                html.Strong("Only Floor 1: "), f"{sorted(only1)}", html.Br(),
-                html.Strong("Only Floor 2: "), f"{sorted(only2)}",
-            ], color="info"), md=8),
+                         dcc.Graph(figure=fig_venn)), md=5),
+            dbc.Col(dbc.Alert(
+                dbc.Table([html.Tbody(info_rows)], bordered=True, size="sm"),
+                color="info"), md=7),
         ]),
     ])
 
