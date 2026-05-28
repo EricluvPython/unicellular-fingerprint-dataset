@@ -26,9 +26,9 @@
 | Site | Location | Floors / Areas | Stationary | Mobile |
 |------|----------|----------------|------------|--------|
 | **CMUQ** | Carnegie Mellon Univ. in Qatar | Floors 1, 2, 3 | ✅ F1, F2, F3 | ✅ F1, F2, F3 |
+| **EC Parking** | Education City, Qatar | Floor 0 (underground), Floor 1 (ground) | ✅ F0, F1 | ✅ F0, F1 |
 | **Ezdan Tower** | Doha | Towers 1-4 | planned | planned |
 | **Msheireb Parking** | Msheireb Downtown Doha | Parking lot | planned | planned |
-| **EC Parking** | Education City | Parking lot | planned | planned |
 
 ---
 
@@ -52,38 +52,52 @@ unicellular-fingerprint-dataset/
 |   |       |-- floor1.csv  (~47 MB, 262 k rows)
 |   |       |-- floor2.csv  (~51 MB, 283 k rows)
 |   |       \-- floor3.csv  (~33 MB, 183 k rows)
+|   |-- ec_parking/
+|   |   |-- stationary/
+|   |   |   |-- floor0.csv  (~26 MB, 144 k rows, underground)
+|   |   |   \-- floor1.csv  (~63 MB, 355 k rows, ground floor)
+|   |   \-- mobile/
+|   |       |-- floor0.csv  (~9 MB,  52 k rows)
+|   |       \-- floor1.csv  (~24 MB, 133 k rows)
 |   |-- ezdan/              (planned)
-|   |-- msheireb_parking/   (planned)
-|   \-- ec_parking/         (planned)
+|   \-- msheireb_parking/   (planned)
 |
 |-- floor_plans/            # rasterised floor plan PNGs
-|   \-- cmuq/
-|       |-- floor1.png
-|       |-- floor2.png
-|       \-- floor3.png
+|   |-- cmuq/
+|   |   |-- floor1.png
+|   |   |-- floor2.png
+|   |   \-- floor3.png
+|   \-- ec_parking/
+|       \-- floor1.png      # ground floor plan (floor 0 has no floor plan)
 |
 |-- coordinates/            # RP pixel coordinates (JSON)
-|   \-- cmuq/
-|       |-- floor1.json
-|       |-- floor2.json
-|       \-- floor3.json
+|   |-- cmuq/
+|   |   |-- floor1.json
+|   |   |-- floor2.json
+|   |   \-- floor3.json
+|   \-- ec_parking/
+|       \-- floor1.json     # 34 RPs on ground floor (floor 0 has no floor plan)
 |
 |-- figures/                # publication-ready overview figures
 |   \-- cmuq/
 |       \-- stationary_floor1_overview.png
 |
 |-- scripts/
-|   \-- cmuq/
-|       |-- assign_coordinates_f1.py    # interactive RP click tool
-|       |-- assign_coordinates_f2.py
-|       |-- assign_coordinates_f3.py
-|       |-- process_stationary_f1.py    # JSON -> stationary CSV
-|       |-- process_stationary_f2.py
-|       |-- process_stationary_f3.py
-|       |-- visualize_stationary_f1.py
-|       |-- visualize_stationary_f2.py
-|       |-- visualize_stationary_f3.py
-|       \-- process_mobile.py           # JSON -> mobile CSVs (all 3 floors)
+|   |-- cmuq/
+|   |   |-- assign_coordinates_f1.py    # interactive RP click tool
+|   |   |-- assign_coordinates_f2.py
+|   |   |-- assign_coordinates_f3.py
+|   |   |-- process_stationary_f1.py    # JSON -> stationary CSV
+|   |   |-- process_stationary_f2.py
+|   |   |-- process_stationary_f3.py
+|   |   |-- visualize_stationary_f1.py
+|   |   |-- visualize_stationary_f2.py
+|   |   |-- visualize_stationary_f3.py
+|   |   \-- process_mobile.py           # JSON -> mobile CSVs (all 3 floors)
+|   \-- ec_parking/
+|       |-- process_stationary.py       # raw JSON -> stationary CSVs (floors 0 & 1)
+|       |-- process_mobile.py           # raw JSON -> mobile CSVs (floors 0 & 1)
+|       \-- assign_coordinates_floor1.py  # interactive RP coordinate tool
 |
 \-- raw/                   # NOT in repo - place raw Firebase exports here
     \-- .gitkeep
@@ -121,7 +135,7 @@ unicellular-fingerprint-dataset/
 | transmitter_snr | float | SNR (dB); blank where raw value = INT_MAX sentinel |
 | transmitter_type | str | Network type string (e.g. LTE, NR) |
 
-### Mobile CSV (25 columns = stationary + `side`)
+### Mobile CSV — CMUQ (25 columns = stationary + `side`)
 
 Same schema as stationary, with the following differences:
 
@@ -131,6 +145,16 @@ Same schema as stationary, with the following differences:
 | x, y | Always `-1` |
 | scanNumber | Monotonic 1-based index per phone per floor (reconstructed from time-sorted order; the Android app resets its internal counter every ~1000 scans) |
 | **side** | `top` = north corridor (straight wall) · `bottom` = south corridor (curved wall). Assigned automatically by finding the largest timestamp gap within each phone's collection and labelling entries before the gap `top` and after `bottom`. |
+
+### Mobile CSV — EC Parking (24 columns, no `side`)
+
+Same as CMUQ mobile but without the `side` column — the parking lot has no two-sided corridor structure.
+
+| Column | Value / Notes |
+|--------|---------------|
+| rpNumber | Always `-1` |
+| x, y | Always `-1` |
+| scanNumber | Monotonic 1-based index per (phone, floor) |
 
 **Sentinel masking**: The Android API returns Integer.MAX_VALUE (2,147,483,647) when a metric is unavailable.
 Processing scripts replace these with empty strings so pandas reads them as NaN.
@@ -160,6 +184,21 @@ Processing scripts replace these with empty strings so pandas reads them as NaN.
 5. **Floor 1 filtering** – The Floor 1 raw export includes a mistake collection run made before 10:02 local time (07:02 UTC, 2026-05-25). These 13 552 entries are dropped during processing.
 6. Mobile data is intended for training/evaluating models that do not require labelled reference points (e.g. unsupervised or self-supervised localisation).
 
+### EC Parking Dataset
+
+**Stationary mode**
+1. **Floor plan preparation** – `assign_coordinates_floor1.py` renders `raw/EC-parking-ground.pdf` as a PNG and uses OpenCV circle detection to locate RP markers; the researcher clicks each detected circle in RP order (1–34) in an interactive matplotlib window, saving `coordinates/ec_parking/floor1.json`.
+2. **Reference points** – Floor 0 (underground): 20 RPs (1–20); Floor 1 (ground): 34 RPs (1–34). No floor plan exists for Floor 0; all `x/y` values are set to `-1`.
+3. **Phones** – 6 smartphones (buildingNumber = 6).
+4. **Scans** – Up to 300 scans per (RP, phone) pair collected via the UniCellular Android app; earlier mistake runs are discarded by keeping only the last 300 entries per group (sorted by timestamp).
+5. **Processing** – `scripts/ec_parking/process_stationary.py` parses the raw Firebase JSON, merges pixel coordinates (Floor 1 only), masks INT_MAX sentinels, and writes `data/ec_parking/stationary/floor{0,1}.csv`.
+
+**Mobile mode**
+1. A researcher walks both parking floors freely; all 6 phones are carried simultaneously.
+2. No side labelling (parking lot has no two-sided corridor). The `side` column is absent.
+3. All rows have `rpNumber = -1`, `x = -1`, `y = -1`.
+4. `scripts/ec_parking/process_mobile.py` reconstructs monotonic scan numbers per (phone, floor) and masks sentinels.
+
 ---
 
 ## Processing Pipeline
@@ -182,7 +221,7 @@ scripts/cmuq/visualize_stationary_f*.py  -->  figures/cmuq/
 dashboard.py  (interactive Dash app)
 ```
 
-### Mobile
+### Mobile (CMUQ)
 
 ```
 Firebase export (raw JSON)
@@ -201,6 +240,29 @@ data/cmuq/mobile/floor{1,2,3}.csv  (Git LFS)
 dashboard.py  (Mobile Data tab)
 ```
 
+### EC Parking (stationary + mobile)
+
+```
+Firebase export (raw/ec_parking.json)
+        |
+        +---> scripts/ec_parking/process_stationary.py
+        |       - separates stationary (rpNumber >= 1) from mobile (rpNumber = 0)
+        |       - keeps last 300 scans per (floor, RP, phone); discards earlier runs
+        |       - merges coordinates/ec_parking/floor1.json for Floor 1
+        |       - masks INT_MAX sentinels
+        |             |
+        |             v
+        |     data/ec_parking/stationary/floor{0,1}.csv  (Git LFS)
+        |
+        \---> scripts/ec_parking/process_mobile.py
+                - filters mobile entries (rpNumber = 0)
+                - reconstructs monotonic scanNumber per (phone, floor)
+                - masks INT_MAX sentinels  (no side labelling)
+                      |
+                      v
+              data/ec_parking/mobile/floor{0,1}.csv  (Git LFS)
+```
+
 ---
 
 ## Interactive Dashboard
@@ -213,7 +275,8 @@ python dashboard.py
 # Open http://127.0.0.1:8050
 ```
 
-The dashboard automatically loads every floor for which a stationary or mobile CSV is present.
+The dashboard supports multiple datasets. Use the **Dataset** dropdown in the header to switch between CMUQ and EC Parking; the floor selector updates automatically. All tabs and charts adapt to the selected dataset.
+
 It contains the following tabs:
 
 | Tab | Contents |
@@ -230,16 +293,16 @@ It contains the following tabs:
 
 ### Mobile Data Tab
 
-The **Mobile Data** tab provides an overview of the free-walk sessions:
+The **Mobile Data** tab provides an overview of the free-walk sessions and adapts based on whether the dataset has side labels:
 
 - **Metric selector** – Choose the signal metric to visualise: RSS · RSSI · RSRQ · SNR · ASU · Level.
-- **KPI cards** – Total scans, unique phones, unique transmitters, plus scan counts broken down by side (top / bottom).
-- **Signal distribution** – Violin plots of the selected metric grouped by corridor side and phone.
-- **Collection timeline** – Scan-level time series of the mean selected metric per phone, showing when each phone was active.
-- **Mean metric per phone & side** – Grouped bar chart comparing the mean selected metric across phones and sides.
-- **Scan counts** – Grouped bar chart of total scan counts per phone, split by side.
-- **TX type breakdown** – Pie chart of transmitter type proportions (LTE, NR, …).
-- **Side note** – The `side` assignment is automatic (largest timestamp gap); verify manually if exact corridor labelling matters for your use case.
+- **KPI cards** – Total rows, phones, transmitters, total scans. For CMUQ, also shows top/bottom side scan counts.
+- **Signal distribution** – Violin plots of the selected metric grouped by phone. For CMUQ, also grouped by corridor side.
+- **Collection timeline** – Scan-level time series of the mean metric per phone (and side, for CMUQ).
+- **Mean metric per phone** – Bar chart comparing mean selected metric across phones. For CMUQ, grouped by side.
+- **Scan counts** – Bar chart of total scan counts per phone (and side, for CMUQ).
+- **TX type breakdown** – Pie chart (EC Parking) or stacked bar by side (CMUQ) of transmitter type proportions.
+- **Side note** *(CMUQ only)* – The `side` assignment is automatic (largest timestamp gap); verify manually if exact corridor labelling matters for your use case.
 
 ---
 
