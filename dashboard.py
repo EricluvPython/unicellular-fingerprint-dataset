@@ -27,17 +27,50 @@ import plotly.express as px
 # ═══════════════════════════════════════════════════════════════════════════
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
-FLOOR_CONFIG = {
-    1: dict(csv=os.path.join("data", "cmuq", "stationary", "floor1.csv"), img=os.path.join("floor_plans", "cmuq", "floor1.png"),  label="Floor 1"),
-    2: dict(csv=os.path.join("data", "cmuq", "stationary", "floor2.csv"), img=os.path.join("floor_plans", "cmuq", "floor2.png"),  label="Floor 2"),
-    3: dict(csv=os.path.join("data", "cmuq", "stationary", "floor3.csv"), img=os.path.join("floor_plans", "cmuq", "floor3.png"),  label="Floor 3"),
+def _p(*parts):
+    return os.path.join(*parts)
+
+DATASETS = {
+    "cmuq": {
+        "label": "CMUQ",
+        "title": "CMUQ Dataset Dashboard",
+        "stationary": {
+            1: dict(csv=_p("data","cmuq","stationary","floor1.csv"), img=_p("floor_plans","cmuq","floor1.png"), label="Floor 1"),
+            2: dict(csv=_p("data","cmuq","stationary","floor2.csv"), img=_p("floor_plans","cmuq","floor2.png"), label="Floor 2"),
+            3: dict(csv=_p("data","cmuq","stationary","floor3.csv"), img=_p("floor_plans","cmuq","floor3.png"), label="Floor 3"),
+        },
+        "mobile": {
+            1: dict(csv=_p("data","cmuq","mobile","floor1.csv"), label="Floor 1"),
+            2: dict(csv=_p("data","cmuq","mobile","floor2.csv"), label="Floor 2"),
+            3: dict(csv=_p("data","cmuq","mobile","floor3.csv"), label="Floor 3"),
+        },
+        "coords_dir": _p("coordinates", "cmuq"),
+        "anchor_pairs": [
+            {1: 20, 2: 20, 3: 20},
+            {1: 23, 2: 23, 3: 23},
+            {1:  8, 2:  8, 3:  8},
+            {1: 55, 2: 55, 3: 35},
+            {1: 69, 2: 68, 3: 49},
+            {1: 77, 2: 76, 3: 57},
+        ],
+    },
+    "ec_parking": {
+        "label": "EC Parking",
+        "title": "EC Parking Dataset Dashboard",
+        "stationary": {
+            0: dict(csv=_p("data","ec_parking","stationary","floor0.csv"), img=None, label="Floor 0 (Underground)"),
+            1: dict(csv=_p("data","ec_parking","stationary","floor1.csv"), img=_p("floor_plans","ec_parking","floor1.png"), label="Floor 1 (Ground)"),
+        },
+        "mobile": {
+            0: dict(csv=_p("data","ec_parking","mobile","floor0.csv"), label="Floor 0 (Underground)"),
+            1: dict(csv=_p("data","ec_parking","mobile","floor1.csv"), label="Floor 1 (Ground)"),
+        },
+        "coords_dir": _p("coordinates", "ec_parking"),
+        "anchor_pairs": [],   # no cross-floor alignment needed
+    },
 }
 
-MOBILE_CONFIG = {
-    1: dict(csv=os.path.join("data", "cmuq", "mobile", "floor1.csv"), label="Floor 1"),
-    2: dict(csv=os.path.join("data", "cmuq", "mobile", "floor2.csv"), label="Floor 2"),
-    3: dict(csv=os.path.join("data", "cmuq", "mobile", "floor3.csv"), label="Floor 3"),
-}
+DEFAULT_DATASET = "cmuq"
 
 SENTINEL = 1e8
 
@@ -152,46 +185,78 @@ def preprocess(df):
 
 
 def preprocess_mobile(df):
-    """Return a bundle of aggregated tables for a mobile floor dataframe."""
+    """Return a bundle of aggregated tables for a mobile floor dataframe.
+    Handles both datasets with sides (CMUQ) and without (EC Parking)."""
     df = df.copy()
     for col in ["transmitter_rssi", "transmitter_snr"]:
         df[col] = df[col].where(df[col].abs() < SENTINEL, other=np.nan)
 
+    has_sides = "side" in df.columns and df["side"].nunique() >= 2
+
     serving = df[df["transmitter_id"] == df["servingCellId"]].copy()
 
-    phone_side_agg = (
-        serving.groupby(["phoneName", "side"])
-        .agg(mean_rss   =("transmitter_rss",  "mean"),
-             mean_rssi  =("transmitter_rssi", "mean"),
-             mean_rsrq  =("transmitter_rsrq", "mean"),
-             mean_snr   =("transmitter_snr",  "mean"),
-             mean_asu   =("transmitter_asu",  "mean"),
-             mean_level =("transmitter_level","mean"),
-             n_scans    =("scanNumber",        "nunique"))
-        .reset_index()
-    )
-
-    temporal = (
-        serving.groupby(["phoneName", "side", "scanNumber"])
-        .agg(mean_rss   =("transmitter_rss",   "mean"),
-             mean_rssi  =("transmitter_rssi",  "mean"),
-             mean_rsrq  =("transmitter_rsrq",  "mean"),
-             mean_snr   =("transmitter_snr",   "mean"),
-             mean_asu   =("transmitter_asu",   "mean"),
-             mean_level =("transmitter_level", "mean"))
-        .reset_index()
-    )
-
-    df["ts_dt"] = pd.to_datetime(df["timeStamp"], unit="ms", utc=True)
-    timeline = (
-        df.groupby([df["ts_dt"].dt.floor("min"), "side", "phoneName"])
-        .size().reset_index(name="count").rename(columns={"ts_dt": "time"})
-    )
-
-    tx_type = (
-        df.groupby(["side", "transmitter_type"])
-        .size().reset_index(name="count")
-    )
+    if has_sides:
+        phone_side_agg = (
+            serving.groupby(["phoneName", "side"])
+            .agg(mean_rss   =("transmitter_rss",  "mean"),
+                 mean_rssi  =("transmitter_rssi", "mean"),
+                 mean_rsrq  =("transmitter_rsrq", "mean"),
+                 mean_snr   =("transmitter_snr",  "mean"),
+                 mean_asu   =("transmitter_asu",  "mean"),
+                 mean_level =("transmitter_level","mean"),
+                 n_scans    =("scanNumber",        "nunique"))
+            .reset_index()
+        )
+        temporal = (
+            serving.groupby(["phoneName", "side", "scanNumber"])
+            .agg(mean_rss   =("transmitter_rss",   "mean"),
+                 mean_rssi  =("transmitter_rssi",  "mean"),
+                 mean_rsrq  =("transmitter_rsrq",  "mean"),
+                 mean_snr   =("transmitter_snr",   "mean"),
+                 mean_asu   =("transmitter_asu",   "mean"),
+                 mean_level =("transmitter_level", "mean"))
+            .reset_index()
+        )
+        df["ts_dt"] = pd.to_datetime(df["timeStamp"], unit="ms", utc=True)
+        timeline = (
+            df.groupby([df["ts_dt"].dt.floor("min"), "side", "phoneName"])
+            .size().reset_index(name="count").rename(columns={"ts_dt": "time"})
+        )
+        tx_type = (
+            df.groupby(["side", "transmitter_type"])
+            .size().reset_index(name="count")
+        )
+    else:
+        phone_side_agg = (
+            serving.groupby(["phoneName"])
+            .agg(mean_rss   =("transmitter_rss",  "mean"),
+                 mean_rssi  =("transmitter_rssi", "mean"),
+                 mean_rsrq  =("transmitter_rsrq", "mean"),
+                 mean_snr   =("transmitter_snr",  "mean"),
+                 mean_asu   =("transmitter_asu",  "mean"),
+                 mean_level =("transmitter_level","mean"),
+                 n_scans    =("scanNumber",        "nunique"))
+            .reset_index()
+        )
+        temporal = (
+            serving.groupby(["phoneName", "scanNumber"])
+            .agg(mean_rss   =("transmitter_rss",   "mean"),
+                 mean_rssi  =("transmitter_rssi",  "mean"),
+                 mean_rsrq  =("transmitter_rsrq",  "mean"),
+                 mean_snr   =("transmitter_snr",   "mean"),
+                 mean_asu   =("transmitter_asu",   "mean"),
+                 mean_level =("transmitter_level", "mean"))
+            .reset_index()
+        )
+        df["ts_dt"] = pd.to_datetime(df["timeStamp"], unit="ms", utc=True)
+        timeline = (
+            df.groupby([df["ts_dt"].dt.floor("min"), "phoneName"])
+            .size().reset_index(name="count").rename(columns={"ts_dt": "time"})
+        )
+        tx_type = (
+            df.groupby(["transmitter_type"])
+            .size().reset_index(name="count")
+        )
 
     return dict(
         df=df, serving=serving,
@@ -200,71 +265,92 @@ def preprocess_mobile(df):
         timeline=timeline,
         tx_type=tx_type,
         phones=sorted(df["phoneName"].unique()),
-        sides=sorted(df["side"].unique()),
+        sides=sorted(df["side"].unique()) if has_sides else [],
         tx_ids=sorted(df["transmitter_id"].unique()),
+        has_sides=has_sides,
     )
 
 
-print("Loading floor data …")
-FLOORS = {}
-for fnum, cfg in FLOOR_CONFIG.items():
-    csv_path = os.path.join(ROOT, cfg["csv"])
-    if os.path.exists(csv_path):
-        print(f"  Floor {fnum}: {csv_path}")
-        raw = pd.read_csv(csv_path)
-        FLOORS[fnum] = preprocess(raw)
-        FLOORS[fnum]["img_b64"], FLOORS[fnum]["img_w"], FLOORS[fnum]["img_h"] = \
-            encode_image(os.path.join(ROOT, cfg["img"]))
-        print(f"    {len(raw):,} rows | {raw['rpNumber'].nunique()} RPs | "
-              f"{raw['phoneName'].nunique()} phones")
-    else:
-        print(f"  Floor {fnum}: CSV not found ({cfg['csv']}) – floor will show placeholder.")
-        FLOORS[fnum] = None
+print("Loading datasets …")
+ALL_FLOORS  = {}   # ALL_FLOORS[dataset][floor]  = bundle | None
+ALL_MOBILE  = {}   # ALL_MOBILE[dataset][floor]  = bundle | None
 
-available_floors = [f for f, d in FLOORS.items() if d is not None]
+for _ds, _ds_cfg in DATASETS.items():
+    ALL_FLOORS[_ds] = {}
+    ALL_MOBILE[_ds] = {}
+
+    print(f"\n  [{_ds}] stationary:")
+    for _fnum, _cfg in _ds_cfg["stationary"].items():
+        _csv = os.path.join(ROOT, _cfg["csv"])
+        if os.path.exists(_csv):
+            _raw = pd.read_csv(_csv)
+            ALL_FLOORS[_ds][_fnum] = preprocess(_raw)
+            _img_path = _cfg.get("img")
+            if _img_path:
+                _b64, _w, _h = encode_image(os.path.join(ROOT, _img_path))
+            else:
+                _b64, _w, _h = None, 800, 600
+            ALL_FLOORS[_ds][_fnum]["img_b64"] = _b64
+            ALL_FLOORS[_ds][_fnum]["img_w"]   = _w
+            ALL_FLOORS[_ds][_fnum]["img_h"]   = _h
+            print(f"    Floor {_fnum}: {len(_raw):,} rows | "
+                  f"{_raw['rpNumber'].nunique()} RPs | "
+                  f"{_raw['phoneName'].nunique()} phones")
+        else:
+            ALL_FLOORS[_ds][_fnum] = None
+            print(f"    Floor {_fnum}: CSV not found – will show placeholder.")
+
+    print(f"  [{_ds}] mobile:")
+    for _fnum, _cfg in _ds_cfg["mobile"].items():
+        _csv = os.path.join(ROOT, _cfg["csv"])
+        if os.path.exists(_csv):
+            _raw_m = pd.read_csv(_csv)
+            ALL_MOBILE[_ds][_fnum] = preprocess_mobile(_raw_m)
+            _hs = ALL_MOBILE[_ds][_fnum]["has_sides"]
+            print(f"    Floor {_fnum}: {len(_raw_m):,} rows | "
+                  f"phones: {_raw_m['phoneName'].nunique()} | "
+                  f"has_sides: {_hs}")
+        else:
+            ALL_MOBILE[_ds][_fnum] = None
+            print(f"    Floor {_fnum}: CSV not found – skipping.")
+
+# Backward-compat aliases used by a few layout helpers
+FLOORS       = ALL_FLOORS[DEFAULT_DATASET]   # updated via get_bundle()
+FLOOR_CONFIG = DATASETS[DEFAULT_DATASET]["stationary"]
+
+available_floors_by_ds = {
+    ds: [f for f, b in ALL_FLOORS[ds].items() if b is not None]
+    for ds in DATASETS
+}
+default_floor_by_ds = {
+    ds: flrs[0] if flrs else None
+    for ds, flrs in available_floors_by_ds.items()
+}
+
+available_floors = available_floors_by_ds[DEFAULT_DATASET]
 if not available_floors:
-    raise RuntimeError("No floor CSV files found. Run the processing scripts first.")
-
-default_floor = available_floors[0]
+    raise RuntimeError("No floor CSV files found for default dataset.")
+default_floor = default_floor_by_ds[DEFAULT_DATASET]
+print(f"\nDefault dataset: {DEFAULT_DATASET}, default floor: {default_floor}")
 print("Pre-processing done.\n")
 
-print("Loading mobile floor data …")
-MOBILE_FLOORS = {}
-for fnum, cfg in MOBILE_CONFIG.items():
-    csv_path = os.path.join(ROOT, cfg["csv"])
-    if os.path.exists(csv_path):
-        print(f"  Mobile Floor {fnum}: {csv_path}")
-        raw_m = pd.read_csv(csv_path)
-        MOBILE_FLOORS[fnum] = preprocess_mobile(raw_m)
-        print(f"    {len(raw_m):,} rows | {raw_m['phoneName'].nunique()} phones | "
-              f"sides: {sorted(raw_m['side'].unique())}")
-    else:
-        MOBILE_FLOORS[fnum] = None
-        print(f"  Mobile Floor {fnum}: CSV not found – skipping.")
-print("Mobile pre-processing done.\n")
-
 # ═══════════════════════════════════════════════════════════════════════════
-# 3-D floor alignment – each row maps floor → RP number at the same physical location
+# 3-D floor alignment – computed once per dataset at startup
 # ═══════════════════════════════════════════════════════════════════════════
-_ANCHOR_PAIRS = [
-    {1: 20, 2: 20, 3: 20},
-    {1: 23, 2: 23, 3: 23},
-    {1:  8, 2:  8, 3:  8},
-    {1: 55, 2: 55, 3: 35},
-    {1: 69, 2: 68, 3: 49},
-    {1: 77, 2: 76, 3: 57},
-]
-_COORDS_DIR  = os.path.join(ROOT, "coordinates", "cmuq")
-_Z_SPACING   = 450          # pixel-units between floor levels
-_IMG_H       = FLOORS[available_floors[0]]["img_h"]   # 1169
+_Z_SPACING = 450   # pixel-units between floor levels
 
-def _load_coords(floor):
-    path = os.path.join(_COORDS_DIR, f"floor{floor}.json")
+
+def _load_coords_file(path):
     if not os.path.exists(path):
         return {}
     with open(path) as f:
         d = json.load(f)
     return {int(k): list(v) for k, v in d.items()}
+
+
+def _load_coords(floor, dataset=DEFAULT_DATASET):
+    coords_dir = os.path.join(ROOT, DATASETS[dataset]["coords_dir"])
+    return _load_coords_file(os.path.join(coords_dir, f"floor{floor}.json"))
 
 
 def _affine_fit(src, dst):
@@ -281,32 +367,66 @@ def _affine_apply(M, xy):
     return (M[:, :2] @ xy.T + M[:, 2:3]).T
 
 
-_ref_coords = _load_coords(1)
-FLOOR_AFFINE = {}
-for _f in available_floors:
-    _src = _load_coords(_f)
-    _sp, _dp = [], []
-    for _pair in _ANCHOR_PAIRS:
-        _rp_src = _pair.get(_f)
-        _rp_dst = _pair.get(1)
-        if _rp_src and _rp_dst and _rp_src in _src and _rp_dst in _ref_coords:
-            _sp.append(_src[_rp_src])
-            _dp.append(_ref_coords[_rp_dst])
-    FLOOR_AFFINE[_f] = _affine_fit(_sp, _dp) if len(_sp) >= 3 else np.eye(2, 3)
-print("Affine alignment computed for floors:", list(FLOOR_AFFINE.keys()))
+# Pre-compute affine per (dataset, floor)
+FLOOR_AFFINE_ALL = {}    # FLOOR_AFFINE_ALL[dataset][floor] = 2×3 matrix
+_IMG_H_BY_DS     = {}    # reference image height per dataset (for y-flip)
+
+for _ds, _ds_cfg in DATASETS.items():
+    _avail = available_floors_by_ds[_ds]
+    if not _avail:
+        FLOOR_AFFINE_ALL[_ds] = {}
+        _IMG_H_BY_DS[_ds] = 600
+        continue
+
+    _ref_floor  = _avail[0]
+    _coords_dir = os.path.join(ROOT, _ds_cfg["coords_dir"])
+    _ref_coords = _load_coords_file(
+        os.path.join(_coords_dir, f"floor{_ref_floor}.json"))
+    _anchor_pairs = _ds_cfg["anchor_pairs"]
+
+    FLOOR_AFFINE_ALL[_ds] = {}
+    for _f in _avail:
+        _src = _load_coords_file(os.path.join(_coords_dir, f"floor{_f}.json"))
+        _sp, _dp = [], []
+        for _pair in _anchor_pairs:
+            _rs, _rd = _pair.get(_f), _pair.get(_ref_floor)
+            if _rs and _rd and _rs in _src and _rd in _ref_coords:
+                _sp.append(_src[_rs]); _dp.append(_ref_coords[_rd])
+        FLOOR_AFFINE_ALL[_ds][_f] = (
+            _affine_fit(_sp, _dp) if len(_sp) >= 3 else np.eye(2, 3))
+
+    _ref_bundle = ALL_FLOORS[_ds].get(_ref_floor)
+    _IMG_H_BY_DS[_ds] = _ref_bundle["img_h"] if _ref_bundle else 600
+
+print("Affine alignment computed for datasets:", list(FLOOR_AFFINE_ALL.keys()))
+
+# Back-compat aliases
+FLOOR_AFFINE = FLOOR_AFFINE_ALL.get(DEFAULT_DATASET, {})
+_IMG_H       = _IMG_H_BY_DS.get(DEFAULT_DATASET, 600)
+_COORDS_DIR  = os.path.join(ROOT, DATASETS[DEFAULT_DATASET]["coords_dir"])
 
 
-def _transform_rp_agg(floor):
-    """Return rp_agg with x3d/y3d (Floor-1 space, y flipped) and z3d added."""
-    rpa  = FLOORS[floor]["rp_agg"]
-    cols = (["rpNumber", "x", "y"] +
-            [c for c in rpa.columns if c.startswith("mean_") or c == "n_tx"])
-    d    = rpa[cols].copy()
-    xy_t = _affine_apply(FLOOR_AFFINE[floor], d[["x", "y"]].values)
-    d["x3d"] = xy_t[:, 0]
-    d["y3d"] = _IMG_H - xy_t[:, 1]     # flip y so +y = up in 3-D
-    d["z3d"] = float((floor - 1) * _Z_SPACING)
+def _transform_rp_agg(floor, dataset=DEFAULT_DATASET):
+    """Return rp_agg with x3d/y3d (ref-floor space, y flipped) and z3d added."""
+    rpa   = ALL_FLOORS[dataset][floor]["rp_agg"]
+    img_h = _IMG_H_BY_DS.get(dataset, 600)
+    affine = FLOOR_AFFINE_ALL[dataset].get(floor, np.eye(2, 3))
+    cols  = (["rpNumber", "x", "y"] +
+             [c for c in rpa.columns if c.startswith("mean_") or c == "n_tx"])
+    d     = rpa[cols].copy()
+    # Skip RPs with no coordinates (x=-1 means unassigned)
+    valid = d[(d["x"] >= 0) & (d["y"] >= 0)]
+    if valid.empty:
+        d["x3d"] = d["x"]; d["y3d"] = img_h - d["y"]; d["z3d"] = 0.0
+        return d
+    xy_t = _affine_apply(affine, valid[["x", "y"]].values)
+    d.loc[valid.index, "x3d"] = xy_t[:, 0]
+    d.loc[valid.index, "y3d"] = img_h - xy_t[:, 1]
+    d.loc[d["x"] < 0, ["x3d","y3d"]] = np.nan
+    min_floor = min(available_floors_by_ds[dataset]) if available_floors_by_ds[dataset] else 0
+    d["z3d"] = float((floor - min_floor) * _Z_SPACING)
     return d
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -407,12 +527,21 @@ def card(title, *children, **kwargs):
 # App layout
 # ═══════════════════════════════════════════════════════════════════════════
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.FLATLY],
-                title="CMUQ Dashboard")
+                title="Fingerprint Dataset Dashboard")
+
+dataset_dropdown = dcc.Dropdown(
+    id="dataset-sel",
+    options=[{"label": v["label"], "value": k} for k, v in DATASETS.items()],
+    value=DEFAULT_DATASET,
+    clearable=False,
+    style={"minWidth": 200, "color": "#333"},
+)
 
 floor_radio = dbc.RadioItems(
     id="floor-sel",
-    options=[{"label": f" Floor {f}", "value": f} for f in available_floors],
-    value=default_floor,
+    options=[{"label": f" {DATASETS[DEFAULT_DATASET]['stationary'][f]['label']}", "value": f}
+             for f in available_floors_by_ds[DEFAULT_DATASET]],
+    value=default_floor_by_ds[DEFAULT_DATASET],
     inline=True,
     inputClassName="me-1",
     className="text-white",
@@ -420,8 +549,10 @@ floor_radio = dbc.RadioItems(
 
 HEADER = dbc.Navbar(
     dbc.Container([
-        html.Span("CMUQ Stationary Dataset Dashboard",
-                  className="navbar-brand fw-bold fs-5 text-white me-4"),
+        html.Span(id="header-title",
+                  className="navbar-brand fw-bold fs-5 text-white me-3"),
+        html.Span("Dataset:", className="text-white me-1 align-self-center small"),
+        html.Div(dataset_dropdown, className="me-3 align-self-center"),
         html.Span("Floor:", className="text-white me-2 align-self-center"),
         floor_radio,
         html.Span(id="header-stats", className="text-white-50 small ms-auto align-self-center"),
@@ -576,14 +707,36 @@ app.layout = html.Div([
 # Callbacks
 # ═══════════════════════════════════════════════════════════════════════════
 
-def get_bundle(floor):
-    return FLOORS.get(int(floor))
+def get_bundle(dataset, floor):
+    return ALL_FLOORS.get(dataset, {}).get(int(floor))
+
+def get_mobile(dataset, floor):
+    return ALL_MOBILE.get(dataset, {}).get(int(floor))
+
+
+# ── Floor options + title (dataset-driven) ───────────────────────────────
+@app.callback(
+    Output("floor-sel", "options"),
+    Output("floor-sel", "value"),
+    Output("header-title", "children"),
+    Input("dataset-sel", "value"),
+)
+def update_floor_opts(dataset):
+    ds_cfg  = DATASETS.get(dataset, {})
+    avail   = available_floors_by_ds.get(dataset, [])
+    stat    = ds_cfg.get("stationary", {})
+    options = [{"label": f" {stat[f]['label']}", "value": f} for f in avail]
+    value   = avail[0] if avail else None
+    title   = ds_cfg.get("title", "Fingerprint Dataset Dashboard")
+    return options, value, title
 
 
 # ── Header stats ──────────────────────────────────────────────────────────
-@app.callback(Output("header-stats","children"), Input("floor-sel","value"))
-def update_header(floor):
-    b = get_bundle(floor)
+@app.callback(Output("header-stats","children"),
+              Input("dataset-sel","value"), Input("floor-sel","value"))
+def update_header(dataset, floor):
+    if floor is None: return ""
+    b = get_bundle(dataset, floor)
     if b is None: return "CSV not loaded"
     df = b["df"]
     return (f"{len(df):,} rows · {df['rpNumber'].nunique()} RPs · "
@@ -592,15 +745,17 @@ def update_header(floor):
 
 
 # ── Overview ──────────────────────────────────────────────────────────────
-@app.callback(Output("overview-content","children"), Input("floor-sel","value"))
-def update_overview(floor):
-    b = get_bundle(floor)
+@app.callback(Output("overview-content","children"),
+              Input("dataset-sel","value"), Input("floor-sel","value"))
+def update_overview(dataset, floor):
+    if floor is None: return dbc.Alert("No floor selected.", color="warning")
+    b = get_bundle(dataset, floor)
     if b is None:
         return dbc.Alert("Floor data not available – run the processing script first.",
                          color="warning")
     df      = b["df"]
     phones  = b["phones"]
-    cfg     = FLOOR_CONFIG[int(floor)]
+    cfg     = DATASETS[dataset]["stationary"][int(floor)]
     short_p = [short(p) for p in phones]
 
     # KPI cards
@@ -651,13 +806,15 @@ def update_overview(floor):
                      labels={"phoneName":"Phone","batteryPower":"Battery (%)"})
     fig_bat.update_layout(showlegend=False, height=300, margin=dict(t=40,b=60))
 
-    const_alert = dbc.Alert([
-        html.Strong("Constant fields: "),
+    const_fields = (
         f"floorNumber={df['floorNumber'].iloc[0]} · "
         f"buildingNumber={df['buildingNumber'].iloc[0]} · "
-        f"deviceHeight={df['deviceHeight'].iloc[0]} m · "
-        "hoFlag=False · infrastructureType='Cellular Ooredoo'",
-    ], color="info")
+        f"deviceHeight={df['deviceHeight'].iloc[0]} m"
+    )
+    if "infrastructureType" in df.columns:
+        infra = df["infrastructureType"].iloc[0]
+        const_fields += f" · infrastructureType='{infra}'"
+    const_alert = dbc.Alert([html.Strong("Constant fields: "), const_fields], color="info")
 
     return html.Div([
         kpis,
@@ -676,9 +833,10 @@ def update_overview(floor):
 
 # ── Floor Map – update phone dropdown options ─────────────────────────────
 @app.callback(Output("fmap-phone","options"), Output("fmap-phone","value"),
-              Input("floor-sel","value"))
-def update_phone_opts(floor):
-    b = get_bundle(floor)
+              Input("dataset-sel","value"), Input("floor-sel","value"))
+def update_phone_opts(dataset, floor):
+    if floor is None: return [{"label":"All","value":"all"}], "all"
+    b = get_bundle(dataset, floor)
     if b is None: return [{"label":"All","value":"all"}], "all"
     opts = [{"label":"All phones","value":"all"}] + \
            [{"label":p,"value":p} for p in b["phones"]]
@@ -686,10 +844,11 @@ def update_phone_opts(floor):
 
 
 @app.callback(Output("fmap-map","figure"), Output("fmap-hist","figure"),
-              Input("floor-sel","value"), Input("fmap-phone","value"),
-              Input("fmap-metric","value"))
-def update_floor_map(floor, phone, metric):
-    b = get_bundle(floor)
+              Input("dataset-sel","value"), Input("floor-sel","value"),
+              Input("fmap-phone","value"), Input("fmap-metric","value"))
+def update_floor_map(dataset, floor, phone, metric):
+    if floor is None: return missing_fig(), missing_fig()
+    b = get_bundle(dataset, floor)
     if b is None: return missing_fig(), missing_fig()
 
     data  = b["rp_agg"] if phone == "all" else \
@@ -714,9 +873,11 @@ def update_floor_map(floor, phone, metric):
 # ── Signal Metrics ────────────────────────────────────────────────────────
 @app.callback(Output("sig-violin","figure"), Output("sig-hist","figure"),
               Output("sig-rpbar","figure"),
-              Input("floor-sel","value"), Input("sig-metric","value"))
-def update_signal(floor, metric_col):
-    b = get_bundle(floor)
+              Input("dataset-sel","value"), Input("floor-sel","value"),
+              Input("sig-metric","value"))
+def update_signal(dataset, floor, metric_col):
+    if floor is None: return missing_fig(), missing_fig(), missing_fig()
+    b = get_bundle(dataset, floor)
     if b is None:
         return missing_fig(), missing_fig(), missing_fig()
 
@@ -756,18 +917,21 @@ def update_signal(floor, metric_col):
 
 
 # ── Temporal ──────────────────────────────────────────────────────────────
-@app.callback(Output("temp-rp","options"), Input("floor-sel","value"))
-def update_temp_rp_opts(floor):
-    b = get_bundle(floor)
+@app.callback(Output("temp-rp","options"),
+              Input("dataset-sel","value"), Input("floor-sel","value"))
+def update_temp_rp_opts(dataset, floor):
+    if floor is None: return []
+    b = get_bundle(dataset, floor)
     if b is None: return []
     return [{"label":f"RP {r}","value":r} for r in b["rp_nums"]]
 
 
 @app.callback(Output("temp-line","figure"), Output("temp-heatmap","figure"),
-              Input("floor-sel","value"), Input("temp-metric","value"),
-              Input("temp-rp","value"))
-def update_temporal(floor, metric, sel_rps):
-    b = get_bundle(floor)
+              Input("dataset-sel","value"), Input("floor-sel","value"),
+              Input("temp-metric","value"), Input("temp-rp","value"))
+def update_temporal(dataset, floor, metric, sel_rps):
+    if floor is None: return missing_fig(), missing_fig()
+    b = get_bundle(dataset, floor)
     if b is None: return missing_fig(), missing_fig()
 
     phones = b["phones"]
@@ -813,9 +977,11 @@ def update_temporal(floor, metric, sel_rps):
 
 
 # ── Transmitters tab ──────────────────────────────────────────────────────
-@app.callback(Output("tx-content","children"), Input("floor-sel","value"))
-def update_tx(floor):
-    b = get_bundle(floor)
+@app.callback(Output("tx-content","children"),
+              Input("dataset-sel","value"), Input("floor-sel","value"))
+def update_tx(dataset, floor):
+    if floor is None: return dbc.Alert("No floor selected.", color="warning")
+    b = get_bundle(dataset, floor)
     if b is None:
         return dbc.Alert("Floor data not available.", color="warning")
 
@@ -876,9 +1042,11 @@ def update_tx(floor):
 
 # ── Field Explorer ────────────────────────────────────────────────────────
 @app.callback(Output("exp-chart","figure"), Output("exp-stats","children"),
-              Input("floor-sel","value"), Input("exp-col","value"))
-def update_explorer(floor, col):
-    b = get_bundle(floor)
+              Input("dataset-sel","value"), Input("floor-sel","value"),
+              Input("exp-col","value"))
+def update_explorer(dataset, floor, col):
+    if floor is None: return missing_fig(), ""
+    b = get_bundle(dataset, floor)
     if b is None: return missing_fig(), ""
 
     df = b["df"]
@@ -925,68 +1093,95 @@ def update_explorer(floor, col):
 # ── 3-D View ──────────────────────────────────────────────────────────────
 @app.callback(
     Output("3d-plot",  "figure"),
+    Input("dataset-sel", "value"),
     Input("3d-metric", "value"),
     Input("3d-ptsize", "value"),
     Input("3d-ds",     "value"),
     Input("3d-opts",   "value"),
 )
-def update_3d(metric_col, pt_size, ds_factor, opts):
+def update_3d(dataset, metric_col, pt_size, ds_factor, opts):
     opts  = opts or []
     label = METRIC_MAP.get(metric_col, metric_col)
-    FCOLS = {1: "#377eb8", 2: "#e41a1c", 3: "#4daf4a"}
     fmt   = ".0f" if metric_col == "n_tx" else ".2f"
+    ds_avail = available_floors_by_ds.get(dataset, [])
+    img_h    = _IMG_H_BY_DS.get(dataset, 600)
+    min_fl   = min(ds_avail) if ds_avail else 0
+    FCOLS    = {}
+    _palette = ["#377eb8","#e41a1c","#4daf4a","#984ea3","#ff7f00"]
+    for i, f in enumerate(ds_avail):
+        FCOLS[f] = _palette[i % len(_palette)]
 
-    # Pre-transform all floors once
-    fdata = {f: _transform_rp_agg(f) for f in available_floors if FLOORS[f] is not None}
+    # Pre-transform all available floors
+    fdata = {}
+    for f in ds_avail:
+        if ALL_FLOORS[dataset].get(f) is not None:
+            fdata[f] = _transform_rp_agg(f, dataset)
 
-    # Global colour range
-    all_v = pd.concat([fdata[f][metric_col].dropna() for f in fdata])
+    if not fdata:
+        return missing_fig("No floor data available for 3D view.")
+
+    # Filter to rows with valid 3D coords
+    fdata = {f: d.dropna(subset=["x3d","y3d"]) for f, d in fdata.items()}
+    fdata = {f: d for f, d in fdata.items() if not d.empty}
+
+    valid_metric = {f: d for f, d in fdata.items() if metric_col in d.columns}
+    if not valid_metric:
+        return missing_fig(f"Metric {metric_col!r} not available.")
+    all_v = pd.concat([d[metric_col].dropna() for d in valid_metric.values()])
+    if all_v.empty:
+        return missing_fig(f"No valid values for {metric_col}.")
     cmin, cmax = float(all_v.min()), float(all_v.max())
 
     traces = []
 
     # ── Floor plan surfaces ───────────────────────────────────────────────
     if "plans" in opts:
-        for f in available_floors:
-            if FLOORS[f] is None:
+        ds_stat_cfg = DATASETS[dataset]["stationary"]
+        for f in ds_avail:
+            bundle = ALL_FLOORS[dataset].get(f)
+            if bundle is None:
                 continue
-            img_path = os.path.join(ROOT, FLOOR_CONFIG[f]["img"])
+            img_cfg = ds_stat_cfg.get(f, {}).get("img")
+            if not img_cfg:
+                continue
+            img_path = os.path.join(ROOT, img_cfg)
             if not os.path.exists(img_path):
                 continue
-            img  = Image.open(img_path).convert("L")
-            W, H = img.width, img.height
-            ds   = max(1, int(ds_factor))
-            img_s = img.resize((W // ds, H // ds), _LANCZOS)
+            img   = Image.open(img_path).convert("L")
+            W, H  = img.width, img.height
+            ds_f  = max(1, int(ds_factor))
+            img_s = img.resize((W // ds_f, H // ds_f), _LANCZOS)
             dW, dH = img_s.size
-            arr  = np.array(img_s, dtype=float) / 255.0      # (dH, dW)
-            # Binarize: dark pixels (walls) → 1, light (open) → 0
-            arr  = (arr < 0.75).astype(float)
-            xs   = np.linspace(0, W, dW)
-            ys   = np.linspace(0, H, dH)
-            Xg, Yg = np.meshgrid(xs, ys)                     # each (dH, dW)
-            pts  = np.column_stack([Xg.ravel(), Yg.ravel()])
-            pt   = _affine_apply(FLOOR_AFFINE[f], pts)
-            Xt   = pt[:, 0].reshape(dH, dW)
-            Yt   = (_IMG_H - pt[:, 1]).reshape(dH, dW)
-            Zt   = np.full((dH, dW), (f - 1) * _Z_SPACING)
+            arr   = np.array(img_s, dtype=float) / 255.0
+            arr   = (arr < 0.75).astype(float)
+            xs    = np.linspace(0, W, dW)
+            ys    = np.linspace(0, H, dH)
+            Xg, Yg = np.meshgrid(xs, ys)
+            pts   = np.column_stack([Xg.ravel(), Yg.ravel()])
+            affine = FLOOR_AFFINE_ALL[dataset].get(f, np.eye(2, 3))
+            pt    = _affine_apply(affine, pts)
+            Xt    = pt[:, 0].reshape(dH, dW)
+            Yt    = (img_h - pt[:, 1]).reshape(dH, dW)
+            Zt    = np.full((dH, dW), (f - min_fl) * _Z_SPACING)
             traces.append(go.Surface(
-                x=Xt, y=Yt, z=Zt,
-                surfacecolor=arr,
+                x=Xt, y=Yt, z=Zt, surfacecolor=arr,
                 colorscale=[[0, "#f0f0f0"], [1, "#111111"]],
                 showscale=False, opacity=0.65,
-                name=f"Floor {f} plan", showlegend=True,
-                hoverinfo="skip",
+                name=f"Floor {f} plan", showlegend=True, hoverinfo="skip",
             ))
 
     # ── RP scatter3d per floor ────────────────────────────────────────────
-    n_fl = len(available_floors)
-    for fi, f in enumerate(available_floors):
-        if f not in fdata:
+    n_fl = len(fdata)
+    for fi, f in enumerate(sorted(fdata.keys())):
+        if metric_col not in fdata[f].columns:
             continue
         d  = fdata[f].dropna(subset=[metric_col])
+        if d.empty:
+            continue
         v  = d[metric_col].values
+        fl_label = DATASETS[dataset]["stationary"].get(f, {}).get("label", f"Floor {f}")
         hover = [
-            f"<b>RP {rp}</b>  Floor {f}<br>{label}: {val:{fmt}}"
+            f"<b>RP {rp}</b>  {fl_label}<br>{label}: {val:{fmt}}"
             for rp, val in zip(d["rpNumber"].values, v)
         ]
         mode = "markers+text" if "labels" in opts else "markers"
@@ -995,9 +1190,7 @@ def update_3d(metric_col, pt_size, ds_factor, opts):
                  if fi == n_fl - 1 else {})
         traces.append(go.Scatter3d(
             x=d["x3d"].values, y=d["y3d"].values, z=d["z3d"].values,
-            mode=mode,
-            text=txt,
-            textposition="top center",
+            mode=mode, text=txt, textposition="top center",
             textfont=dict(size=8, color=FCOLS.get(f, "#333")),
             marker=dict(
                 size=pt_size, color=v,
@@ -1006,54 +1199,49 @@ def update_3d(metric_col, pt_size, ds_factor, opts):
                 line=dict(width=1, color="rgba(255,255,255,0.6)"),
                 **cb_kw,
             ),
-            name=f"Floor {f}",
-            hovertext=hover, hoverinfo="text",
+            name=fl_label, hovertext=hover, hoverinfo="text",
         ))
 
     # ── Anchor vertical lines ─────────────────────────────────────────────
     if "anchors" in opts:
-        for i, pair in enumerate(_ANCHOR_PAIRS):
+        anchor_pairs = DATASETS[dataset]["anchor_pairs"]
+        for i, pair in enumerate(anchor_pairs):
             xs_a, ys_a, zs_a = [], [], []
-            for f in available_floors:
-                if f not in fdata:
-                    continue
+            for f in sorted(fdata.keys()):
                 rp = pair.get(f)
-                if rp is None:
-                    continue
+                if rp is None: continue
                 row = fdata[f][fdata[f]["rpNumber"] == rp]
-                if row.empty:
-                    continue
+                if row.empty: continue
                 xs_a.append(float(row["x3d"].iloc[0]))
                 ys_a.append(float(row["y3d"].iloc[0]))
                 zs_a.append(float(row["z3d"].iloc[0]))
-            if len(xs_a) < 2:
-                continue
-            rp_label = "/".join(str(pair.get(f, "?")) for f in available_floors)
+            if len(xs_a) < 2: continue
+            rp_label = "/".join(str(pair.get(f, "?")) for f in sorted(fdata.keys()))
             traces.append(go.Scatter3d(
-                x=xs_a, y=ys_a, z=zs_a,
-                mode="lines",
+                x=xs_a, y=ys_a, z=zs_a, mode="lines",
                 line=dict(color="gold", width=4, dash="dot"),
                 name="Anchor RPs" if i == 0 else f"RP {rp_label}",
-                showlegend=(i == 0),
-                hoverinfo="skip",
+                showlegend=(i == 0), hoverinfo="skip",
             ))
 
     # ── Layout ────────────────────────────────────────────────────────────
+    z_vals  = [(f - min_fl) * _Z_SPACING for f in ds_avail]
+    z_texts = [DATASETS[dataset]["stationary"].get(f, {}).get("label", f"Floor {f}")
+               for f in ds_avail]
     fig = go.Figure(traces)
     fig.update_layout(
         title=f"3D Building View – {label}",
         scene=dict(
             xaxis=dict(title="", showbackground=False, gridcolor="#ddd",
-                       range=[0, 1650], showticklabels=False),
+                       showticklabels=False),
             yaxis=dict(title="", showbackground=False, gridcolor="#ddd",
-                       range=[0, _IMG_H], showticklabels=False),
+                       range=[0, img_h], showticklabels=False),
             zaxis=dict(
                 title="Floor level",
                 showbackground=True,
                 backgroundcolor="rgba(220,230,245,0.3)",
                 gridcolor="#ccc",
-                tickvals=[(f - 1) * _Z_SPACING for f in available_floors],
-                ticktext=[f"Floor {f}" for f in available_floors],
+                tickvals=z_vals, ticktext=z_texts,
             ),
             aspectmode="manual",
             aspectratio=dict(x=1.4, y=1.0, z=0.55),
@@ -1067,58 +1255,75 @@ def update_3d(metric_col, pt_size, ds_factor, opts):
 
 # ── Mobile Data ──────────────────────────────────────────────────────────
 @app.callback(Output("mobile-content", "children"),
+              Input("dataset-sel", "value"),
               Input("floor-sel", "value"),
               Input("mob-metric", "value"))
-def update_mobile(floor, metric_col):
-    mb = MOBILE_FLOORS.get(int(floor))
+def update_mobile(dataset, floor, metric_col):
+    if floor is None:
+        return dbc.Alert("No floor selected.", color="warning", className="mt-3")
+    mb = get_mobile(dataset, floor)
     if mb is None:
         return dbc.Alert(
             "Mobile data not available for this floor – run process_mobile.py first.",
             color="warning", className="mt-3")
 
-    df     = mb["df"]
-    srvg   = mb["serving"]
-    phones = mb["phones"]
-    sides  = mb["sides"]
-    psa    = mb["phone_side_agg"]
-    temp   = mb["temporal"]
-    tl     = mb["timeline"]
+    df       = mb["df"]
+    srvg     = mb["serving"]
+    phones   = mb["phones"]
+    has_sides = mb.get("has_sides", True)
+    sides    = mb["sides"] if has_sides else []
+    psa      = mb["phone_side_agg"]
+    temp     = mb["temporal"]
+    tl       = mb["timeline"]
 
     label    = SIGNAL_COLS.get(metric_col, metric_col)
     mean_col = "mean_" + metric_col.replace("transmitter_", "")
 
     # ── KPI row ──────────────────────────────────────────────────────────
-    side_scans = psa.groupby("side")["n_scans"].sum()
-    top_scans  = int(side_scans.get("top",    0))
-    bot_scans  = int(side_scans.get("bottom", 0))
+    if has_sides:
+        side_scans = psa.groupby("side")["n_scans"].sum()
+        top_scans  = int(side_scans.get("top",    0))
+        bot_scans  = int(side_scans.get("bottom", 0))
+        kpis = dbc.Row([
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{len(df):,}", className="text-primary"),
+                                           html.P("Total rows", className="text-muted small")])), width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(str(len(phones)), className="text-success"),
+                                           html.P("Phones", className="text-muted small")])), width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{df['transmitter_id'].nunique()}", className="text-danger"),
+                                           html.P("Transmitters", className="text-muted small")])), width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_scans:,}", className="text-info"),
+                                           html.P("Top-side scans", className="text-muted small")])), width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{bot_scans:,}", className="text-warning"),
+                                           html.P("Bottom-side scans", className="text-muted small")])), width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_scans + bot_scans:,}", className="text-secondary"),
+                                           html.P("Total scans", className="text-muted small")])), width=2),
+        ], className="mb-3 g-2")
+    else:
+        total_scans = int(psa["n_scans"].sum()) if "n_scans" in psa.columns else 0
+        kpis = dbc.Row([
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{len(df):,}", className="text-primary"),
+                                           html.P("Total rows", className="text-muted small")])), width=3),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(str(len(phones)), className="text-success"),
+                                           html.P("Phones", className="text-muted small")])), width=3),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{df['transmitter_id'].nunique()}", className="text-danger"),
+                                           html.P("Transmitters", className="text-muted small")])), width=3),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{total_scans:,}", className="text-info"),
+                                           html.P("Total scans", className="text-muted small")])), width=3),
+        ], className="mb-3 g-2")
 
-    kpis = dbc.Row([
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{len(df):,}", className="text-primary"),
-                                       html.P("Total rows", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(str(len(phones)), className="text-success"),
-                                       html.P("Phones", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{df['transmitter_id'].nunique()}", className="text-danger"),
-                                       html.P("Transmitters", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_scans:,}", className="text-info"),
-                                       html.P("Top-side scans", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{bot_scans:,}", className="text-warning"),
-                                       html.P("Bottom-side scans", className="text-muted small")])), width=2),
-        dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{top_scans + bot_scans:,}", className="text-secondary"),
-                                       html.P("Total scans", className="text-muted small")])), width=2),
-    ], className="mb-3 g-2")
-
-    # ── Signal violin: top vs bottom ─────────────────────────────────────
-    fig_side_v = go.Figure()
-    for s in sides:
-        vals = srvg[srvg["side"] == s][metric_col].dropna()
-        fig_side_v.add_trace(go.Violin(
-            y=vals, name=s.capitalize(),
-            box_visible=True, meanline_visible=True,
-            fillcolor=SIDE_COLORS.get(s, "#aaa"), opacity=0.8,
-            line_color="black", line_width=0.8))
-    fig_side_v.update_layout(
-        title=f"{label} by Side (serving cell)",
-        yaxis_title=label, height=380, margin=dict(t=40))
+    # ── Signal violin: top vs bottom (only when has_sides) ───────────────
+    if has_sides:
+        fig_side_v = go.Figure()
+        for s in sides:
+            vals = srvg[srvg["side"] == s][metric_col].dropna()
+            fig_side_v.add_trace(go.Violin(
+                y=vals, name=s.capitalize(),
+                box_visible=True, meanline_visible=True,
+                fillcolor=SIDE_COLORS.get(s, "#aaa"), opacity=0.8,
+                line_color="black", line_width=0.8))
+        fig_side_v.update_layout(
+            title=f"{label} by Side (serving cell)",
+            yaxis_title=label, height=380, margin=dict(t=40))
 
     # ── Signal violin: per phone ──────────────────────────────────────────
     fig_phone_v = go.Figure()
@@ -1133,113 +1338,169 @@ def update_mobile(floor, metric_col):
         title=f"{label} by Phone (serving cell)",
         yaxis_title=label, height=380, margin=dict(t=40))
 
-    # ── Metric vs scan number per phone×side ──────────────────────────────
+    # ── Metric vs scan number ─────────────────────────────────────────────
     fig_scan = go.Figure()
-    line_dash = {"top": "solid", "bottom": "dash"}
-    if mean_col in temp.columns:
-        for s in sides:
+    if has_sides:
+        line_dash = {"top": "solid", "bottom": "dash"}
+        if mean_col in temp.columns:
+            for s in sides:
+                for ph in phones:
+                    sub = (temp[(temp["phoneName"] == ph) & (temp["side"] == s)]
+                           .sort_values("scanNumber"))
+                    if sub.empty:
+                        continue
+                    fig_scan.add_trace(go.Scatter(
+                        x=sub["scanNumber"], y=sub[mean_col],
+                        mode="lines",
+                        name=f"{short(ph)} ({s})",
+                        line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
+                                  width=1.4, dash=line_dash.get(s, "solid")),
+                        legendgroup=short(ph),
+                        hovertemplate=f"<b>{short(ph)}</b> [{s}]<br>Scan %{{x}}: %{{y:.2f}}<extra></extra>",
+                    ))
+        scan_title = f"Mean {label} vs Scan Number (solid=top, dashed=bottom)"
+    else:
+        if mean_col in temp.columns:
             for ph in phones:
-                sub = (temp[(temp["phoneName"] == ph) & (temp["side"] == s)]
-                       .sort_values("scanNumber"))
+                sub = temp[temp["phoneName"] == ph].sort_values("scanNumber")
                 if sub.empty:
                     continue
                 fig_scan.add_trace(go.Scatter(
                     x=sub["scanNumber"], y=sub[mean_col],
                     mode="lines",
-                    name=f"{short(ph)} ({s})",
-                    line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
-                              width=1.4, dash=line_dash.get(s, "solid")),
-                    legendgroup=short(ph),
-                    hovertemplate=f"<b>{short(ph)}</b> [{s}]<br>Scan %{{x}}: %{{y:.2f}}<extra></extra>",
+                    name=short(ph),
+                    line=dict(color=PHONE_COLORS.get(ph, "#aaa"), width=1.4),
+                    hovertemplate=f"<b>{short(ph)}</b><br>Scan %{{x}}: %{{y:.2f}}<extra></extra>",
                 ))
-    else:
+        scan_title = f"Mean {label} vs Scan Number by Phone"
+    if not fig_scan.data:
         fig_scan.add_annotation(text=f"{label} not available in scan-level data",
                                 xref="paper", yref="paper", x=0.5, y=0.5,
                                 showarrow=False, font=dict(size=14, color="grey"))
     fig_scan.update_layout(
-        title=f"Mean {label} vs Scan Number (solid=top, dashed=bottom)",
-        xaxis_title="Scan Number", yaxis_title=label,
-        height=420, margin=dict(t=40),
-        legend=dict(font=dict(size=9)))
+        title=scan_title, xaxis_title="Scan Number", yaxis_title=label,
+        height=420, margin=dict(t=40), legend=dict(font=dict(size=9)))
 
     # ── Collection timeline ───────────────────────────────────────────────
     fig_tl = go.Figure()
-    for s in sides:
+    if has_sides:
+        line_dash = {"top": "solid", "bottom": "dash"}
+        for s in sides:
+            for ph in phones:
+                sub = tl[(tl["side"] == s) & (tl["phoneName"] == ph)].sort_values("time")
+                if sub.empty:
+                    continue
+                fig_tl.add_trace(go.Scatter(
+                    x=sub["time"], y=sub["count"], mode="lines",
+                    name=f"{short(ph)} ({s})",
+                    line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
+                              dash=line_dash.get(s, "solid"), width=1.4),
+                    legendgroup=short(ph),
+                    hovertemplate=f"{short(ph)} [{s}]<br>%{{x}}: %{{y}} scans/min<extra></extra>",
+                ))
+        tl_title = "Collection Timeline (scans/min by phone & side)"
+    else:
         for ph in phones:
-            sub = tl[(tl["side"] == s) & (tl["phoneName"] == ph)].sort_values("time")
+            sub = tl[tl["phoneName"] == ph].sort_values("time")
             if sub.empty:
                 continue
             fig_tl.add_trace(go.Scatter(
-                x=sub["time"], y=sub["count"],
-                mode="lines",
-                name=f"{short(ph)} ({s})",
-                line=dict(color=PHONE_COLORS.get(ph, "#aaa"),
-                          dash=line_dash.get(s, "solid"), width=1.4),
-                legendgroup=short(ph),
-                hovertemplate=f"{short(ph)} [{s}]<br>%{{x}}: %{{y}} scans/min<extra></extra>",
+                x=sub["time"], y=sub["count"], mode="lines",
+                name=short(ph),
+                line=dict(color=PHONE_COLORS.get(ph, "#aaa"), width=1.4),
+                hovertemplate=f"{short(ph)}<br>%{{x}}: %{{y}} scans/min<extra></extra>",
             ))
+        tl_title = "Collection Timeline (scans/min by phone)"
     fig_tl.update_layout(
-        title="Collection Timeline (scans/min by phone & side)",
-        xaxis_title="Time (UTC)", yaxis_title="Scans/min",
-        height=340, margin=dict(t=40),
-        legend=dict(font=dict(size=9)))
+        title=tl_title, xaxis_title="Time (UTC)", yaxis_title="Scans/min",
+        height=340, margin=dict(t=40), legend=dict(font=dict(size=9)))
 
-    # ── Transmitter type per side ─────────────────────────────────────────
+    # ── Transmitter type ──────────────────────────────────────────────────
     tx_t = mb["tx_type"]
-    fig_tx = px.bar(
-        tx_t, x="side", y="count", color="transmitter_type",
-        barmode="stack",
-        color_discrete_map={"GSM": "#e41a1c", "LTE": "#377eb8"},
-        title="Transmitter Type per Side",
-        labels={"side": "Side", "count": "Rows", "transmitter_type": "Type"},
-    )
-    fig_tx.update_layout(height=320, margin=dict(t=40))
-
-    # ── Mean metric per phone+side (grouped bar) ──────────────────────────
-    if mean_col in psa.columns:
-        fig_bar = px.bar(
-            psa, x="phoneName", y=mean_col, color="side",
-            color_discrete_map=SIDE_COLORS,
-            barmode="group",
-            title=f"Mean {label} per Phone & Side (serving cell)",
-            labels={"phoneName": "Phone", mean_col: f"Mean {label}", "side": "Side"},
+    if has_sides and "side" in tx_t.columns:
+        fig_tx = px.bar(
+            tx_t, x="side", y="count", color="transmitter_type",
+            barmode="stack",
+            color_discrete_map={"GSM": "#e41a1c", "LTE": "#377eb8"},
+            title="Transmitter Type per Side",
+            labels={"side": "Side", "count": "Rows", "transmitter_type": "Type"},
         )
     else:
-        fig_bar = missing_fig(f"{label} aggregation not available.")
+        tx_grouped = tx_t.groupby("transmitter_type")["count"].sum().reset_index()
+        fig_tx = px.pie(
+            tx_grouped, names="transmitter_type", values="count",
+            title="Transmitter Type Split",
+            color_discrete_map={"GSM": "#e41a1c", "LTE": "#377eb8"},
+        )
+    fig_tx.update_layout(height=320, margin=dict(t=40))
+
+    # ── Mean metric per phone (+ side if applicable) ──────────────────────
+    if mean_col in psa.columns:
+        if has_sides and "side" in psa.columns:
+            fig_bar = px.bar(
+                psa, x="phoneName", y=mean_col, color="side",
+                color_discrete_map=SIDE_COLORS, barmode="group",
+                title=f"Mean {label} per Phone & Side (serving cell)",
+                labels={"phoneName": "Phone", mean_col: f"Mean {label}", "side": "Side"},
+            )
+            fig_counts = px.bar(
+                psa, x="phoneName", y="n_scans", color="side",
+                color_discrete_map=SIDE_COLORS, barmode="group",
+                title="Scan Counts per Phone & Side",
+                labels={"phoneName": "Phone", "n_scans": "Unique Scans", "side": "Side"},
+            )
+        else:
+            fig_bar = px.bar(
+                psa, x="phoneName", y=mean_col, color="phoneName",
+                color_discrete_map=PHONE_COLORS,
+                title=f"Mean {label} per Phone (serving cell)",
+                labels={"phoneName": "Phone", mean_col: f"Mean {label}"},
+            )
+            fig_bar.update_layout(showlegend=False)
+            fig_counts = px.bar(
+                psa, x="phoneName", y="n_scans", color="phoneName",
+                color_discrete_map=PHONE_COLORS,
+                title="Scan Counts per Phone",
+                labels={"phoneName": "Phone", "n_scans": "Unique Scans"},
+            )
+            fig_counts.update_layout(showlegend=False)
+    else:
+        fig_bar    = missing_fig(f"{label} aggregation not available.")
+        fig_counts = missing_fig()
     fig_bar.update_xaxes(tickangle=-30)
     fig_bar.update_layout(height=320, margin=dict(t=40, b=70))
-
-    # ── Scan counts per phone+side (grouped bar) ──────────────────────────
-    fig_counts = px.bar(
-        psa, x="phoneName", y="n_scans", color="side",
-        color_discrete_map=SIDE_COLORS,
-        barmode="group",
-        title="Scan Counts per Phone & Side",
-        labels={"phoneName": "Phone", "n_scans": "Unique Scans", "side": "Side"},
-    )
     fig_counts.update_xaxes(tickangle=-30)
     fig_counts.update_layout(height=320, margin=dict(t=40, b=70))
+
+    # ── Build layout ──────────────────────────────────────────────────────
+    violin_row_cols = []
+    if has_sides:
+        violin_row_cols.append(
+            dbc.Col(card(f"{label} Distribution by Side",  dcc.Graph(figure=fig_side_v)),  md=6))
+    violin_row_cols.append(
+        dbc.Col(card(f"{label} Distribution by Phone", dcc.Graph(figure=fig_phone_v)), md=6 if has_sides else 12))
 
     side_note = dbc.Alert(
         [html.Strong("Side labels: "),
          "top = north corridor (straight wall) · bottom = south corridor (curved wall)"],
         color="info", className="py-2 mb-3",
-    )
+    ) if has_sides else html.Div()
+
+    bar_label  = f"Mean {label} per Phone{'& Side' if has_sides else ''}"
+    cnt_label  = f"Scan Counts per Phone{'& Side' if has_sides else ''}"
+    tx_label   = "Transmitter Type per Side" if has_sides else "Transmitter Type"
 
     return html.Div([
         kpis,
         side_note,
-        dbc.Row([
-            dbc.Col(card(f"{label} Distribution by Side",  dcc.Graph(figure=fig_side_v)),  md=6),
-            dbc.Col(card(f"{label} Distribution by Phone", dcc.Graph(figure=fig_phone_v)), md=6),
-        ]),
+        dbc.Row(violin_row_cols),
         dbc.Row([
             dbc.Col(card(f"Mean {label} vs Scan Number", dcc.Graph(figure=fig_scan)), md=12),
         ]),
         dbc.Row([
-            dbc.Col(card(f"Mean {label} per Phone & Side", dcc.Graph(figure=fig_bar)),    md=5),
-            dbc.Col(card("Scan Counts per Phone & Side",   dcc.Graph(figure=fig_counts)), md=4),
-            dbc.Col(card("Transmitter Type per Side",      dcc.Graph(figure=fig_tx)),     md=3),
+            dbc.Col(card(bar_label,  dcc.Graph(figure=fig_bar)),    md=5),
+            dbc.Col(card(cnt_label,  dcc.Graph(figure=fig_counts)), md=4),
+            dbc.Col(card(tx_label,   dcc.Graph(figure=fig_tx)),     md=3),
         ]),
         dbc.Row([
             dbc.Col(card("Collection Timeline", dcc.Graph(figure=fig_tl)), md=12),
@@ -1248,24 +1509,26 @@ def update_mobile(floor, metric_col):
 
 
 # ── Compare Floors ────────────────────────────────────────────────────────
-@app.callback(Output("compare-content","children"), Input("tabs","active_tab"))
-def update_compare(active_tab):
+@app.callback(Output("compare-content","children"),
+              Input("dataset-sel","value"), Input("tabs","active_tab"))
+def update_compare(dataset, active_tab):
     if active_tab != "tab-compare":
         return html.Div()
 
-    if len(available_floors) < 2:
+    fl = available_floors_by_ds.get(dataset, [])
+    if len(fl) < 2:
         return dbc.Alert(
             "Only one floor loaded. Process more floor data first to enable comparisons.",
             color="warning", className="mt-3")
 
-    fl = available_floors  # e.g. [1, 2, 3]
-    md_w = max(3, 12 // len(fl))  # e.g. 4 for 3 floors, 6 for 2
+    md_w = max(3, 12 // len(fl))
+    ds_floors = ALL_FLOORS[dataset]
 
     # Side-by-side floor maps (RSS)
     map_cols = [
-        dbc.Col(card(f"Floor {f} – Mean RSS Map",
-                     dcc.Graph(figure=floor_scatter(FLOORS[f], "mean_rss",
-                                                    title=f"Floor {f} – Mean RSS"))),
+        dbc.Col(card(f"{DATASETS[dataset]['stationary'][f]['label']} – Mean RSS Map",
+                     dcc.Graph(figure=floor_scatter(ds_floors[f], "mean_rss",
+                                                    title=f"{DATASETS[dataset]['stationary'][f]['label']} – Mean RSS"))),
                 md=md_w)
         for f in fl
     ]
@@ -1273,11 +1536,11 @@ def update_compare(active_tab):
     # RSS violin all floors
     fig_box = go.Figure()
     for f in fl:
-        vals = FLOORS[f]["serving"]["transmitter_rss"].dropna()
+        vals = ds_floors[f]["serving"]["transmitter_rss"].dropna()
         fig_box.add_trace(go.Violin(
-            y=vals, name=f"Floor {f}",
+            y=vals, name=DATASETS[dataset]["stationary"][f]["label"],
             box_visible=True, meanline_visible=True, opacity=0.8))
-    floor_label = " vs ".join(f"Floor {f}" for f in fl)
+    floor_label = " vs ".join(DATASETS[dataset]["stationary"][f]["label"] for f in fl)
     fig_box.update_layout(title=f"Serving-Cell RSS: {floor_label}",
                            yaxis_title="RSS (dBm)", height=380, margin=dict(t=40))
 
@@ -1285,14 +1548,15 @@ def update_compare(active_tab):
     fig_tx = go.Figure()
     for f in fl:
         fig_tx.add_trace(go.Histogram(
-            x=FLOORS[f]["rp_agg"]["n_tx"], name=f"Floor {f}",
+            x=ds_floors[f]["rp_agg"]["n_tx"],
+            name=DATASETS[dataset]["stationary"][f]["label"],
             opacity=0.65, nbinsx=15, histnorm="percent"))
     fig_tx.update_layout(title=f"Unique Transmitters per RP: {floor_label}",
                           barmode="overlay", xaxis_title="# Transmitters",
                           yaxis_title="% of RPs", height=340, margin=dict(t=40))
 
-    # Transmitter ID overlap (works for any number of floors)
-    tx_sets = {f: set(FLOORS[f]["df"]["transmitter_id"].unique()) for f in fl}
+    # Transmitter ID overlap
+    tx_sets = {f: set(ds_floors[f]["df"]["transmitter_id"].unique()) for f in fl}
     all_union = set.union(*tx_sets.values())
     all_common = set.intersection(*tx_sets.values())
 
@@ -1318,7 +1582,8 @@ def update_compare(active_tab):
     for f in fl:
         others = set.union(*[tx_sets[g] for g in fl if g != f])
         unique = sorted(tx_sets[f] - others)
-        info_rows.append(html.Tr([html.Th(f"Only Floor {f}"), html.Td(str(unique))]))
+        fl_lbl = DATASETS[dataset]["stationary"][f]["label"]
+        info_rows.append(html.Tr([html.Th(f"Only {fl_lbl}"), html.Td(str(unique))]))
     info_rows.append(html.Tr([html.Th("Common to all"), html.Td(str(sorted(all_common)))]))
 
     return html.Div([
